@@ -1,0 +1,37 @@
+[tool.poetry]
+name = "target-snowflake"
+version="2.2.0.1"
+description = "Singer.io target for loading data to Snowflake - PipelineWise compatible"
+authors = ["Wise"]
+classifiers = [
+          'License :: OSI Approved :: Apache Software License',
+          'Programming Language :: Python :: 3 :: Only',
+          'Programming Language :: Python :: 3.7',
+          'Programming Language :: Python :: 3.8',
+          'Programming Language :: Python :: 3.9',
+      ]
+
+[tool.poetry.dependencies]
+python = "^3.7.1"
+pipelinewise-singer-python = "1.*"
+snowflake-connector-python = "2.7.*"
+pandas = "1.3.5"
+inflection = "0.5.1"
+joblib = "1.2.0"
+boto3 = "1.23.10"
+
+[tool.poetry.dev-dependencies]
+pylint = "2.12.*"
+pytest = "7.1.1"
+pytest-cov = "*"
+python-dotenv = "0.19.*"
+toml = "*"
+tesults = "*"
+pytest-tesults = "*"
+
+[tool.poetry.scripts]
+target-snowflake = "target_snowflake:main"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
