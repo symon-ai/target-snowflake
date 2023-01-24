@@ -89,8 +89,8 @@ def column_type(schema_property):
         col_type = 'binary'
     elif 'number' in property_type:
         col_type = 'float'
-    elif 'integer' in property_type and 'string' in property_type:
-        col_type = 'text'
+    # elif 'integer' in property_type and 'string' in property_type:
+    #     col_type = 'text'
     elif 'integer' in property_type:
         col_type = 'number'
     elif 'boolean' in property_type:
