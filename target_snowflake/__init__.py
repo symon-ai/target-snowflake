@@ -537,7 +537,7 @@ def main():
     singer_messages = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
     persist_lines(config, singer_messages, table_cache, file_format_type)
 
-    LOGGER.debug("Exiting normally")
+    LOGGER.debug("Exiting normally - testing codebuild")
 
 
 if __name__ == '__main__':
