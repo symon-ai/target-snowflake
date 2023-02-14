@@ -523,6 +523,7 @@ def main():
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument('-c', '--config', help='Config file')
     args = arg_parser.parse_args()
+    LOGGER.info('Starting normally')
 
     if args.config:
         with open(args.config, encoding="utf8") as config_input:
