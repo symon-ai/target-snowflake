@@ -35,8 +35,7 @@ def validate_config(config):
         'user',
         'password',
         'warehouse',
-        'file_format',
-        'default_target_schema'
+        'file_format'
     ]
 
     required_config_keys = []
@@ -57,12 +56,11 @@ def validate_config(config):
         if not config.get(k, None):
             errors.append(f"Required key is missing from config: [{k}]")
 
-    # For Symon, we only use default_target_schema as schema_mapping is for dealing with multiple streams, commenting out additional validation
-    # # Check target schema config
-    # config_default_target_schema = config.get('default_target_schema', None)
-    # config_schema_mapping = config.get('schema_mapping', None)
-    # if not config_default_target_schema and not config_schema_mapping:
-    #     errors.append("Neither 'default_target_schema' (string) nor 'schema_mapping' (object) keys set in config.")
+    # Check target schema config
+    config_default_target_schema = config.get('default_target_schema', None)
+    config_schema_mapping = config.get('schema_mapping', None)
+    if not config_default_target_schema and not config_schema_mapping:
+        errors.append("Neither 'default_target_schema' (string) nor 'schema_mapping' (object) keys set in config.")
 
     # Check if archive load files option is using external stages
     archive_load_files = config.get('archive_load_files', False)
