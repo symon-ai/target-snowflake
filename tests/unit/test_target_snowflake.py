@@ -21,11 +21,13 @@ class TestTargetSnowflake(unittest.TestCase):
         self.config = {}
         self.maxDiff = None
 
+    @patch('sys.getsizeof')
     @patch('target_snowflake.flush_streams')
     @patch('target_snowflake.DbSync')
-    def test_persist_lines_with_40_records_and_batch_size_of_20_expect_flushing_once(self, dbSync_mock,
-                                                                                     flush_streams_mock):
-        self.config['batch_size_rows'] = 20
+    def test_persist_lines_with_40_records_and_batch_size_of_20MB_expect_flushing_once(self, dbSync_mock,
+                                                                                     flush_streams_mock,
+                                                                                     sys_getsizeof_mock):
+        self.config['batch_size'] = 20
         self.config['flush_all_streams'] = True
 
         with open(f'{os.path.dirname(__file__)}/resources/logical-streams.json', 'r') as f:
@@ -36,16 +38,19 @@ class TestTargetSnowflake(unittest.TestCase):
         instance.sync_table.return_value = None
 
         flush_streams_mock.return_value = '{"currently_syncing": null}'
+        sys_getsizeof_mock.return_value = 1024 * 1024
 
         target_snowflake.persist_lines(self.config, lines)
 
         self.assertEqual(1, flush_streams_mock.call_count)
 
+    @patch('sys.getsizeof')
     @patch('target_snowflake.flush_streams')
     @patch('target_snowflake.DbSync')
     def test_persist_lines_with_same_schema_expect_flushing_once(self, dbSync_mock,
-                                                                 flush_streams_mock):
-        self.config['batch_size_rows'] = 20
+                                                                 flush_streams_mock,
+                                                                 sys_getsizeof_mock):
+        self.config['batch_size'] = 20
 
         with open(f'{os.path.dirname(__file__)}/resources/same-schemas-multiple-times.json', 'r') as f:
             lines = f.readlines()
@@ -55,15 +60,17 @@ class TestTargetSnowflake(unittest.TestCase):
         instance.sync_table.return_value = None
 
         flush_streams_mock.return_value = '{"currently_syncing": null}'
+        sys_getsizeof_mock.return_value = 1024 * 1024
 
         target_snowflake.persist_lines(self.config, lines)
 
         self.assertEqual(1, flush_streams_mock.call_count)
 
+    @patch('sys.getsizeof')
     @patch('target_snowflake.datetime')
     @patch('target_snowflake.flush_streams')
     @patch('target_snowflake.DbSync')
-    def test_persist_40_records_with_batch_wait_limit(self, dbSync_mock, flush_streams_mock, dateTime_mock):
+    def test_persist_40_records_with_batch_wait_limit(self, dbSync_mock, flush_streams_mock, dateTime_mock, sys_getsizeof_mock):
 
         start_time = datetime(2021, 4, 6, 0, 0, 0)
         increment = 11
@@ -72,7 +79,7 @@ class TestTargetSnowflake(unittest.TestCase):
         # Move time forward by {{increment}} seconds every time utcnow() is called
         dateTime_mock.utcnow.side_effect = lambda: start_time + timedelta(seconds=increment * next(counter))
 
-        self.config['batch_size_rows'] = 100
+        self.config['batch_size'] = 100
         self.config['batch_wait_limit_seconds'] = 10
         self.config['flush_all_streams'] = True
 
@@ -85,6 +92,7 @@ class TestTargetSnowflake(unittest.TestCase):
         instance.sync_table.return_value = None
 
         flush_streams_mock.return_value = '{"currently_syncing": null}'
+        sys_getsizeof_mock.return_value = 1024 * 1024
 
         target_snowflake.persist_lines(self.config, lines)
 
@@ -147,14 +155,15 @@ class TestTargetSnowflake(unittest.TestCase):
             'archived-by': 'pipelinewise_target_snowflake'
         })
 
+    @patch('sys.getsizeof')
     @patch('target_snowflake.flush_streams')
     @patch('target_snowflake.DbSync')
-    def test_persist_lines_with_only_state_messages(self, dbSync_mock, flush_streams_mock):
+    def test_persist_lines_with_only_state_messages(self, dbSync_mock, flush_streams_mock, sys_getsizeof_mock):
         """
         Given only state messages, target should emit the last one
         """
 
-        self.config['batch_size_rows'] = 5
+        self.config['batch_size'] = 5
 
         with open(f'{os.path.dirname(__file__)}/resources/streams_only_state.json', 'r') as f:
             lines = f.readlines()
@@ -162,6 +171,7 @@ class TestTargetSnowflake(unittest.TestCase):
         instance = dbSync_mock.return_value
         instance.create_schema_if_not_exists.return_value = None
         instance.sync_table.return_value = None
+        sys_getsizeof_mock.return_value = 1024 * 1024
 
         # catch stdout
         buf = io.StringIO()

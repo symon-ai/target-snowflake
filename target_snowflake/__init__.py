@@ -31,7 +31,7 @@ LOGGER = get_logger('target_snowflake')
 # Tone down snowflake.connector log noise by only outputting warnings and higher level messages
 logging.getLogger('snowflake.connector').setLevel(logging.WARNING)
 
-DEFAULT_BATCH_SIZE_BYTES = 16 * 1024 * 1024
+DEFAULT_BATCH_SIZE = 16 # Default batch size in MB
 DEFAULT_PARALLELISM = 0  # 0 The number of threads used to flush tables
 DEFAULT_MAX_PARALLELISM = 16  # Don't use more than this number of threads by default when flushing streams in parallel
 
@@ -112,7 +112,7 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
     stream_to_sync = {}
     total_row_count = {}
     current_batch_size = {}
-    batch_size_bytes = config.get('batch_size_bytes', DEFAULT_BATCH_SIZE_BYTES)
+    batch_size = config.get('batch_size', DEFAULT_BATCH_SIZE) * 1024 * 1024
     batch_wait_limit_seconds = config.get('batch_wait_limit_seconds', None)
     flush_timestamp = datetime.utcnow()
     archive_load_files = config.get('archive_load_files', False)
@@ -192,11 +192,10 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
                         stream_archive_load_files_values['max'] = incremental_key_value
 
             flush = False
-            if current_batch_size[stream] >= batch_size_bytes:
-                LOGGER.info(f'MAX batch size reached: {current_batch_size[stream]}')
+            if current_batch_size[stream] >= batch_size:
                 flush = True
-                LOGGER.info("Flush triggered by batch_size_bytes (%s) reached in %s",
-                            batch_size_bytes, stream)
+                LOGGER.info("Flush triggered by batch_size (%s) reached in %s",
+                            batch_size, stream)
             elif (batch_wait_limit_seconds and
                   datetime.utcnow() >= (flush_timestamp + timedelta(seconds=batch_wait_limit_seconds))):
                 flush = True
@@ -423,7 +422,6 @@ def flush_streams(
             archive_load_files_data[stream]['min'] = None
             archive_load_files_data[stream]['max'] = None
 
-    LOGGER.info(f'After load current_batch_size: {current_batch_size[stream]}')
     # Return with state message with flushed positions
     return flushed_state
 
@@ -433,7 +431,6 @@ def load_stream_batch(stream, records, row_count, current_batch_size, db_sync, n
     """Load one batch of the stream into target table"""
     # Load into snowflake
     if row_count[stream] > 0:
-        LOGGER.info(f'load_stream_batch current_batch_size: {current_batch_size[stream]} - MAX: {DEFAULT_BATCH_SIZE_BYTES}')
         flush_records(stream, records, db_sync, temp_dir, no_compression, archive_load_files)
 
         # Delete soft-deleted, flagged rows - where _sdc_deleted at is not null
@@ -523,7 +520,6 @@ def main():
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument('-c', '--config', help='Config file')
     args = arg_parser.parse_args()
-    LOGGER.info('Starting normally')
 
     if args.config:
         with open(args.config, encoding="utf8") as config_input:
