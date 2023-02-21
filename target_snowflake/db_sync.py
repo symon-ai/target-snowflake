@@ -10,7 +10,7 @@ from target_snowflake import flattening
 from target_snowflake import stream_utils
 from target_snowflake.file_format import FileFormat, FileFormatTypes
 
-from target_snowflake.exceptions import TooManyRecordsException, PrimaryKeyNotFoundException
+from target_snowflake.exceptions import TooManyRecordsException, PrimaryKeyNotFoundException, AccessControlException
 from target_snowflake.upload_clients.s3_upload_client import S3UploadClient
 from target_snowflake.upload_clients.snowflake_upload_client import SnowflakeUploadClient
 
@@ -611,9 +611,17 @@ class DbSync:
             schema_rows = self.query(f"SHOW SCHEMAS LIKE '{schema_name.upper()}'")
 
         if len(schema_rows) == 0:
-            query = f"CREATE SCHEMA IF NOT EXISTS {schema_name}"
-            self.logger.info("Schema '%s' does not exist. Creating... %s", schema_name, query)
-            self.query(query)
+            try:
+                query = f"CREATE SCHEMA IF NOT EXISTS {schema_name}"
+                self.logger.info("Schema '%s' does not exist. Creating... %s", schema_name, query)
+                self.query(query)
+            except snowflake.connector.errors.ProgrammingError as e:
+                if 'Insufficient privileges to operate on database' in e.msg:
+                    dbname = self.connection_config['dbname']
+                    raise AccessControlException(f"Privilege missing: CREATE SCHEMA privilege on database '{dbname.upper()}'")
+                if f"Schema '{schema_name.upper()}' already exists, but current role has no privileges on it" in e.msg:
+                    raise AccessControlException(f"Privilege missing: USAGE privilege on schema '{schema_name.upper()}'")
+                raise e
 
             self.grant_privilege(schema_name, self.grantees, self.grant_usage_on_schema)
 
@@ -809,9 +817,19 @@ class DbSync:
                             if f'"{table["TABLE_NAME"].upper()}"' == table_name]
 
         if len(found_tables) == 0:
-            query = self.create_table_query()
-            self.logger.info('Table %s does not exist. Creating...', table_name_with_schema)
-            self.query(query)
+            try:
+                query = self.create_table_query()
+                self.logger.info('Table %s does not exist. Creating...', table_name_with_schema)
+                self.query(query)
+            except snowflake.connector.errors.ProgrammingError as e:
+                table_name_quote_removed = table_name[1:-1]
+                if 'Insufficient privileges to operate on schema' in e.msg:
+                    raise AccessControlException(f"Privilege missing: CREATE TABLE privilege on schema '{self.schema_name.upper()}'")
+                # if table exists, ownership privilege is needed on table as we use internal table stage and perform ddl
+                if f"Table '{table_name_quote_removed}' already exists, but current role has no privileges on it" in e.msg:
+                    raise AccessControlException(f"Privilege missing: OWNERSHIP privilege on table '{table_name_quote_removed.upper()}'")
+                raise e
+                
             self.grant_privilege(self.schema_name, self.grantees, self.grant_select_on_all_tables_in_schema)
 
             # Refresh columns cache if required
@@ -858,7 +876,14 @@ class DbSync:
         for pk in current_pks.union(new_pks):
             queries.append(f'alter table {table_name} alter column {safe_column_name(pk)} drop not null;')
 
-        self.query(queries)
+        try:
+            self.query(queries)
+        except snowflake.connector.errors.ProgrammingError as e:
+            if 'Insufficient privileges to operate on table' in e.msg:
+                table_name_quote_removed = table_name.split('.')[1][1:-1]
+                # ownership privilege required for ddl
+                raise AccessControlException(f"Privilege missing: OWNERSHIP privilege on table '{table_name_quote_removed.upper()}'")
+            raise e
 
     def _get_current_pks(self) -> Set[str]:
         """
