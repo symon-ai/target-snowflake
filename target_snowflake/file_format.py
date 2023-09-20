@@ -4,7 +4,7 @@ from types import ModuleType
 from typing import Callable
 
 import target_snowflake.file_formats
-from target_snowflake.exceptions import FileFormatNotFoundException, InvalidFileFormatException
+from target_snowflake.exceptions import InvalidFileFormatException, SymonException
 
 # Supported types for file formats.
 @unique
@@ -80,7 +80,7 @@ class FileFormat:
                     f"Not supported named file format {file_format_name}. Supported file formats: {FileFormatTypes}") \
                     from ex
         else:
-            raise FileFormatNotFoundException(
-                f"Named file format not found: {file_format}")
+            raise SymonException(
+                f"Named file format not found: {file_format}", 'snowflake.clientError')
 
         return file_format_type

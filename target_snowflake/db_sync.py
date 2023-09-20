@@ -10,7 +10,7 @@ from target_snowflake import flattening
 from target_snowflake import stream_utils
 from target_snowflake.file_format import FileFormat, FileFormatTypes
 
-from target_snowflake.exceptions import TooManyRecordsException, PrimaryKeyNotFoundException, AccessControlException
+from target_snowflake.exceptions import TooManyRecordsException, SymonException
 from target_snowflake.upload_clients.s3_upload_client import S3UploadClient
 from target_snowflake.upload_clients.snowflake_upload_client import SnowflakeUploadClient
 
@@ -379,9 +379,10 @@ class DbSync:
         key_props = []
         for key_prop in self.stream_schema_message['key_properties']:
             if key_prop not in flatten or flatten[key_prop] is None:
-                raise PrimaryKeyNotFoundException(
+                raise SymonException(
                     f"Primary key '{key_prop}' does not exist in record or is null. "
-                    f"Available fields: {list(flatten.keys())}"
+                    f"Available fields: {list(flatten.keys())}",
+                    "snowflake.clientError"
                 )
 
             key_props.append(str(flatten[key_prop]))
@@ -618,9 +619,9 @@ class DbSync:
             except snowflake.connector.errors.ProgrammingError as e:
                 if 'Insufficient privileges to operate on database' in e.msg:
                     dbname = self.connection_config['dbname']
-                    raise AccessControlException(f"Privilege missing: CREATE SCHEMA privilege on database '{dbname.upper()}'")
+                    raise SymonException(f"Privilege missing: CREATE SCHEMA privilege on database '{dbname.upper()}'", "snowflake.clientError")
                 if f"Schema '{schema_name.upper()}' already exists, but current role has no privileges on it" in e.msg:
-                    raise AccessControlException(f"Privilege missing: USAGE privilege on schema '{schema_name.upper()}'")
+                    raise SymonException(f"Privilege missing: USAGE privilege on schema '{schema_name.upper()}'", "snowflake.clientError")
                 raise e
 
             self.grant_privilege(schema_name, self.grantees, self.grant_usage_on_schema)
@@ -824,10 +825,10 @@ class DbSync:
             except snowflake.connector.errors.ProgrammingError as e:
                 table_name_quote_removed = table_name[1:-1]
                 if 'Insufficient privileges to operate on schema' in e.msg:
-                    raise AccessControlException(f"Privilege missing: CREATE TABLE privilege on schema '{self.schema_name.upper()}'")
+                    raise SymonException(f"Privilege missing: CREATE TABLE privilege on schema '{self.schema_name.upper()}'", "snowflake.clientError")
                 # if table exists, ownership privilege is needed on table as we use internal table stage and perform ddl
                 if f"Table '{table_name_quote_removed}' already exists, but current role has no privileges on it" in e.msg:
-                    raise AccessControlException(f"Privilege missing: OWNERSHIP privilege on table '{table_name_quote_removed.upper()}'")
+                    raise SymonException(f"Privilege missing: OWNERSHIP privilege on table '{table_name_quote_removed.upper()}'", "snowflake.clientError")
                 raise e
                 
             self.grant_privilege(self.schema_name, self.grantees, self.grant_select_on_all_tables_in_schema)
@@ -882,7 +883,7 @@ class DbSync:
             if 'Insufficient privileges to operate on table' in e.msg:
                 table_name_quote_removed = table_name.split('.')[1][1:-1]
                 # ownership privilege required for ddl
-                raise AccessControlException(f"Privilege missing: OWNERSHIP privilege on table '{table_name_quote_removed.upper()}'")
+                raise SymonException(f"Privilege missing: OWNERSHIP privilege on table '{table_name_quote_removed.upper()}'", "snowflake.clientError")
             raise e
 
     def _get_current_pks(self) -> Set[str]:

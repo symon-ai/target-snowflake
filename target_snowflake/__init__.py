@@ -3,6 +3,7 @@
 import argparse
 import io
 import json
+import traceback
 import logging
 import os
 import sys
@@ -23,7 +24,8 @@ from target_snowflake.file_format import FileFormatTypes
 from target_snowflake.exceptions import (
     RecordValidationException,
     UnexpectedValueTypeException,
-    InvalidValidationOperationException
+    InvalidValidationOperationException,
+    SymonException
 )
 
 LOGGER = get_logger('target_snowflake')
@@ -517,24 +519,59 @@ def flush_records(stream: str,
 
 def main():
     """Main function"""
-    arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument('-c', '--config', help='Config file')
-    args = arg_parser.parse_args()
+    try:
+        error_info = None
+        arg_parser = argparse.ArgumentParser()
+        arg_parser.add_argument('-c', '--config', help='Config file')
+        args = arg_parser.parse_args()
 
-    if args.config:
-        with open(args.config, encoding="utf8") as config_input:
-            config = json.load(config_input)
-    else:
-        config = {}
+        if args.config:
+            with open(args.config, encoding="utf8") as config_input:
+                config = json.load(config_input)
+        else:
+            config = {}
 
-    # Init columns cache
-    table_cache, file_format_type = get_snowflake_statics(config)
+        # Init columns cache
+        table_cache, file_format_type = get_snowflake_statics(config)
 
-    # Consume singer messages
-    singer_messages = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-    persist_lines(config, singer_messages, table_cache, file_format_type)
+        # Consume singer messages
+        singer_messages = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
+        persist_lines(config, singer_messages, table_cache, file_format_type)
 
-    LOGGER.debug("Exiting normally")
+        LOGGER.debug("Exiting normally")
+    except SymonException as e:
+        error_info = {
+            'message': str(e),
+            'code': e.code,
+            'traceback': traceback.format_exc()
+        }
+
+        if e.details is not None:
+            error_info['details'] = e.details
+        raise
+    except BaseException as e:
+        error_info = {
+            'message': str(e),
+            'traceback': traceback.format_exc()
+        }
+        raise
+    finally:
+        if error_info is not None:
+            error_file_path = args.config.get('error_file_path', None)
+            if error_file_path is not None:
+                try:
+                    with open(error_file_path, 'w', encoding='utf-8') as fp:
+                        json.dump(error_info, fp)
+                except:
+                    pass
+            # log error info as well in case file is corrupted
+            error_info_json = json.dumps(error_info)
+            error_start_marker = args.config.get(
+                'error_start_marker', '[target_error_start]')
+            error_end_marker = args.config.get(
+                'error_end_marker', '[target_error_end]')
+            LOGGER.info(
+                f'{error_start_marker}{error_info_json}{error_end_marker}')
 
 
 if __name__ == '__main__':
