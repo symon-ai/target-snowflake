@@ -81,6 +81,6 @@ class FileFormat:
                     from ex
         else:
             raise SymonException(
-                f"Named file format not found: {file_format}", 'snowflake.clientError')
+                f'We couldn\'t find the file format "{file_format_name}". Please ensure you have all the privileges needed to access the file format.', 'snowflake.clientError')
 
         return file_format_type

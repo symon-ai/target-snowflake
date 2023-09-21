@@ -557,7 +557,7 @@ def main():
         raise
     finally:
         if error_info is not None:
-            error_file_path = args.config.get('error_file_path', None)
+            error_file_path = config.get('error_file_path', None)
             if error_file_path is not None:
                 try:
                     with open(error_file_path, 'w', encoding='utf-8') as fp:
@@ -566,9 +566,9 @@ def main():
                     pass
             # log error info as well in case file is corrupted
             error_info_json = json.dumps(error_info)
-            error_start_marker = args.config.get(
+            error_start_marker = config.get(
                 'error_start_marker', '[target_error_start]')
-            error_end_marker = args.config.get(
+            error_end_marker = config.get(
                 'error_end_marker', '[target_error_end]')
             LOGGER.info(
                 f'{error_start_marker}{error_info_json}{error_end_marker}')
