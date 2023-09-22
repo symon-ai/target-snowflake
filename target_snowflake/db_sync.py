@@ -637,6 +637,7 @@ class DbSync:
                 dbname_upper = self.connection_config['dbname'].upper()
                 schema_name_upper = schema_name.upper()
                 # No privilege to create schema. However, this error could be raised if user doesn't have usage privilege on the existing schema 
+                # as the schema will not be returned SHOW query. 
                 if 'Insufficient privileges to operate on database' in e.msg:
                     raise SymonException(f'CREATE SCHEMA privilege on database "{dbname_upper}" is missing. If the schema "{schema_name_upper}" already exists in the database "{dbname_upper}", please ensure you have USAGE privilege on the schema.', "snowflake.clientError")
                 if f"Schema '{schema_name.upper()}' already exists, but current role has no privileges on it" in e.msg:
@@ -843,8 +844,8 @@ class DbSync:
                 self.logger.info('Table %s does not exist. Creating...', table_name_with_schema)
                 self.query(query)
             except snowflake.connector.errors.ProgrammingError as e:
-                # No privilege to create table. However, this error could be raised if user doesn't have select or ownership privilege on the existing table.
-                # We need ownership privilege on updating existing table.
+                # No privilege to create table. However, this error could be raised if user doesn't have select or ownership privilege on the existing table
+                # as the table will not be returned from get_tables call. We need ownership privilege on updating existing table.
                 if 'Insufficient privileges to operate on schema' in e.msg:
                     raise SymonException(f'CREATE TABLE privilege on schema "{schema_name_upper}" is missing. If the table {table_name_upper} already exists in the schema "{schema_name_upper}, please ensure you have OWNERSHIP privilege on the table.', "snowflake.clientError")
                 # if table exists, ownership privilege is needed on table as we use internal table stage and perform ddl

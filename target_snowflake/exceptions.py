@@ -35,6 +35,8 @@ class PrimaryKeyNotFoundException(Exception):
 class AccessControlException(Exception):
     """Exception to raise when Snowflake privilege is missing"""
 
+# We skip extra error handling for this error in Symon and use it directly. 
+# PrimaryKeyNotFoundException, AccessControlExceltion, FileFormatNotFoundException have been replaced with SymonException in the code.
 class SymonException(Exception):
     """Exception to raise for Symon Export to skip extra error handling"""
     def __init__(self, message, code, details=None):
