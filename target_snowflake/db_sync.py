@@ -311,11 +311,11 @@ class DbSync:
             )
         except snowflake.connector.errors.DatabaseError as e:
             if 'Incorrect username or password was specified' in e.msg:
-                raise SymonException('The username and password provided are incorrect. Please try again.', 'snowflake.SnowflakeClientError')
+                raise SymonException("The username and password provided are incorrect. Please try again.", "snowflake.clientError")
             raise
         except snowflake.connector.errors.ForbiddenError as e:
             if 'Failed to connect to DB. Verify the account name is correct' in e.msg:
-                raise SymonException("Sorry, we couldn't connect to the database. Please check the Snowflake URL and try again.", "snowflake.SnowflakeClientError")
+                raise SymonException("Sorry, we couldn't connect to the database. Please check the Snowflake URL and try again.", "snowflake.cientError")
             raise
 
     def query(self, query: Union[str, List[str]], params: Dict = None, max_records=0) -> List[Dict]:
