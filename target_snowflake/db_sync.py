@@ -354,7 +354,7 @@ class DbSync:
                     except snowflake.connector.errors.ProgrammingError as e:
                         message = str(e)
                         if 'No active warehouse selected in the current session.' in message:
-                            raise SymonException(f'The warehouse provided is incorrect. Please ensure it is correct and you are authorized to access it', 'snowflake.clientError')
+                            raise SymonException(f'The warehouse provided is incorrect. Please ensure it is correct and you are authorized to access it.', 'snowflake.clientError')
                         if 'This session does not have a current database' in message:
                             raise SymonException(f'The database provided is incorrect. Please ensure it is correct and you are authorized to access it.', 'snowflake.clientError')
                         raise
@@ -910,7 +910,7 @@ class DbSync:
             if 'Insufficient privileges to operate on table' in e.msg:
                 table_name_quote_removed = table_name.split('.')[1][1:-1]
                 # ownership privilege required for ddl
-                raise SymonException(f"Privilege missing: OWNERSHIP privilege on table '{table_name_quote_removed.upper()}'", "snowflake.clientError")
+                raise SymonException(f'OWNERSHIP privilege on table "{table_name_quote_removed.upper()}" is missing.', "snowflake.clientError")
             raise e
 
     def _get_current_pks(self) -> Set[str]:
