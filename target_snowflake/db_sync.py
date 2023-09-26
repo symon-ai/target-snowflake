@@ -315,7 +315,7 @@ class DbSync:
             raise
         except snowflake.connector.errors.ForbiddenError as e:
             if 'Failed to connect to DB. Verify the account name is correct' in e.msg:
-                raise SymonException("Sorry, we couldn't connect to the database. Please check the Snowflake URL and try again.", "snowflake.cientError")
+                raise SymonException("Sorry, we couldn't connect to the database. Please check the Snowflake URL and try again.", "snowflake.clientError")
             raise
 
     def query(self, query: Union[str, List[str]], params: Dict = None, max_records=0) -> List[Dict]:
