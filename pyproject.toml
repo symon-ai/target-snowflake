@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "target-snowflake"
-version="2.2.0.1"
+version="2.2.0.2"
 description = "Singer.io target for loading data to Snowflake - PipelineWise compatible"
 authors = ["Wise"]
 classifiers = [
