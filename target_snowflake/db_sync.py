@@ -310,11 +310,11 @@ class DbSync:
                 }
             )
         except snowflake.connector.errors.DatabaseError as e:
-            if 'Incorrect username or password was specified' in e.msg:
+            if 'Incorrect username or password was specified' in str(e):
                 raise SymonException("The username and password provided are incorrect. Please try again.", "snowflake.clientError")
             raise
         except snowflake.connector.errors.ForbiddenError as e:
-            if 'Failed to connect to DB. Verify the account name is correct' in e.msg:
+            if 'Failed to connect to DB. Verify the account name is correct' in str(e):
                 raise SymonException("Sorry, we couldn't connect to the database. Please check the Snowflake URL and try again.", "snowflake.clientError")
             raise
 
@@ -353,7 +353,7 @@ class DbSync:
                         cur.execute(q, params)
                     except snowflake.connector.errors.ProgrammingError as e:
                         message = str(e)
-                        if 'No active warehouse selected in the current session.' in message:
+                        if 'No active warehouse selected in the current session' in message:
                             raise SymonException(f'The warehouse provided is incorrect. Please ensure it is correct and you are authorized to access it.', 'snowflake.clientError')
                         if 'This session does not have a current database' in message:
                             raise SymonException(f'The database provided is incorrect. Please ensure it is correct and you are authorized to access it.', 'snowflake.clientError')
@@ -636,11 +636,12 @@ class DbSync:
             except snowflake.connector.errors.ProgrammingError as e:
                 dbname_upper = self.connection_config['dbname'].upper()
                 schema_name_upper = schema_name.upper()
+                message = str(e)
                 # No privilege to create schema. However, this error could be raised if user doesn't have usage privilege on the existing schema 
                 # as the schema will not be returned SHOW query. 
-                if 'Insufficient privileges to operate on database' in e.msg:
+                if 'Insufficient privileges to operate on database' in message:
                     raise SymonException(f'CREATE SCHEMA privilege on database "{dbname_upper}" is missing. If the schema "{schema_name_upper}" already exists in the database "{dbname_upper}", please ensure you have USAGE privilege on the schema.', "snowflake.clientError")
-                if f"Schema '{schema_name.upper()}' already exists, but current role has no privileges on it" in e.msg:
+                if f"Schema '{schema_name.upper()}' already exists, but current role has no privileges on it" in message:
                     raise SymonException(f'USAGE privilege on schema "{schema_name.upper()}" is missing.', "snowflake.clientError")
                 raise
 
@@ -846,10 +847,11 @@ class DbSync:
             except snowflake.connector.errors.ProgrammingError as e:
                 # No privilege to create table. However, this error could be raised if user doesn't have select or ownership privilege on the existing table
                 # as the table will not be returned from get_tables call. We need ownership privilege on updating existing table.
-                if 'Insufficient privileges to operate on schema' in e.msg:
-                    raise SymonException(f'CREATE TABLE privilege on schema "{schema_name_upper}" is missing. If the table {table_name_upper} already exists in the schema "{schema_name_upper}, please ensure you have OWNERSHIP privilege on the table.', "snowflake.clientError")
+                message = str(e)
+                if 'Insufficient privileges to operate on schema' in message:
+                    raise SymonException(f'CREATE TABLE privilege on schema "{schema_name_upper}" is missing. If the table {table_name_upper} already exists in the schema "{schema_name_upper}", please ensure you have OWNERSHIP privilege on the table.', "snowflake.clientError")
                 # if table exists, ownership privilege is needed on table as we use internal table stage and perform ddl
-                if f"Table '{table_name_upper[1:-1]}' already exists, but current role has no privileges on it" in e.msg:
+                if f"Table '{table_name_upper[1:-1]}' already exists, but current role has no privileges on it" in message:
                     raise SymonException(f'OWNERSHIP privilege on table {table_name_upper} is missing.', "snowflake.clientError")
                 raise
                 
@@ -863,7 +865,7 @@ class DbSync:
             try:
                 self.update_columns()
             except snowflake.connector.errors.ProgrammingError as e:
-                if f"Insufficient privileges to operate on table '{table_name_upper[1:-1]}'" in e.msg:
+                if f"Insufficient privileges to operate on table" in str(e):
                     raise SymonException(f'OWNERSHIP privilege on table {table_name_upper} is missing.', "snowflake.clientError")
                 raise
 
@@ -907,7 +909,7 @@ class DbSync:
         try:
             self.query(queries)
         except snowflake.connector.errors.ProgrammingError as e:
-            if 'Insufficient privileges to operate on table' in e.msg:
+            if 'Insufficient privileges to operate on table' in str(e):
                 table_name_quote_removed = table_name.split('.')[1][1:-1]
                 # ownership privilege required for ddl
                 raise SymonException(f'OWNERSHIP privilege on table "{table_name_quote_removed.upper()}" is missing.', "snowflake.clientError")
