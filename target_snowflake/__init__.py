@@ -540,19 +540,21 @@ def main():
 
         LOGGER.debug("Exiting normally")
     except SymonException as e:
+        exc_type, exc_value, exc_traceback = sys.exc_info()
         error_info = {
-            'message': str(e),
+            'message': traceback.format_exception_only(exc_type, exc_value)[-1],
             'code': e.code,
-            'traceback': traceback.format_exc()
+            'traceback': "".join(traceback.format_tb(exc_traceback))
         }
 
         if e.details is not None:
             error_info['details'] = e.details
         raise
     except BaseException as e:
+        exc_type, exc_value, exc_traceback = sys.exc_info()
         error_info = {
-            'message': str(e),
-            'traceback': traceback.format_exc()
+            'message': traceback.format_exception_only(exc_type, exc_value)[-1],
+            'traceback': "".join(traceback.format_tb(exc_traceback))
         }
         raise
     finally:
