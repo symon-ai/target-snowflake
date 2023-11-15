@@ -743,7 +743,7 @@ class DbSync:
         """Refreshes the internal table cache"""
         self.table_cache = self.get_table_columns([self.schema_name])
 
-    def update_columns(self):
+    def validate_columns(self):
         """Adds required but not existing columns the target table according to the schema"""
         stream_schema_message = self.stream_schema_message
         stream = stream_schema_message['stream']
@@ -768,27 +768,24 @@ class DbSync:
             for (name, properties_schema) in self.flatten_schema.items()
             if name.upper() in columns_dict and
                columns_dict[name.upper()]['DATA_TYPE'].upper() != column_type(properties_schema).upper() and
-               not (columns_dict[name.upper()]['DATA_TYPE'].upper() in ['DATE', 'TIMESTAMP', 'TIMESTAMP_TZ', 'TIMESTAMP_NTZ', 'TIMESTAMP_LTZ'] and column_type(properties_schema).upper() == 'TIMESTAMP_NTZ')
+               # Allow Symon date type to be compatible to any date, timestamp type in snowflake     
+               not (columns_dict[name.upper()]['DATA_TYPE'].upper() in ['DATE', 'TIMESTAMP', 'TIMESTAMP_TZ', 'TIMESTAMP_LTZ'] and column_type(properties_schema).upper() == 'TIMESTAMP_NTZ') and
+               # Allow Symon number type to be compatible with any number type in snowflake
+               not (columns_dict[name.upper()]['DATA_TYPE'].upper() == 'NUMBER' and column_type(properties_schema).upper() == 'FLOAT')
         ]
-
         if len(columns_with_type_mismatch) > 0:
             raise SymonException(f'Exported data includes columns that have different data types in the Snowflake table {table_name}: {columns_with_type_mismatch}', 'snowflake.clientError')
 
-        columns_to_add = [
-            column_clause(
-                name,
-                properties_schema
-            )
-            for (name, properties_schema) in self.flatten_schema.items()
-            if name.upper() not in columns_dict
-        ]
+        stream_columns = [column.upper() for column in self.flatten_schema]
 
-        for column in columns_to_add:
-            self.add_column(column, stream)
+        columns_extra = [column for column in stream_columns if column not in columns_dict]
+        if len(columns_extra) > 0:
+            raise SymonException(f'Exported data includes columns that are not present in the Snowflake table {table_name}: {columns_extra}', 'snowflake.clientError')
+        
+        columns_missing = [column for column in columns_dict if column not in stream_columns]
+        if len(columns_missing) > 0:
+            raise SymonException(f'Exported data is missing columns that are present in the Snowflake table {table_name}: {columns_missing}', 'snowflake.clientError')
 
-        # Refresh table cache if required
-        if self.table_cache and columns_to_add:
-            self.table_cache = self.get_table_columns(table_schemas=[self.schema_name])
 
     def drop_column(self, column_name, stream):
         """Drops column from an existing table"""
@@ -852,7 +849,7 @@ class DbSync:
         else:
             self.logger.info('Table %s exists', table_name_with_schema)
             try:
-                self.update_columns()
+                self.validate_columns()
             except snowflake.connector.errors.ProgrammingError as e:
                 if f"Insufficient privileges to operate on table" in str(e):
                     raise SymonException(f'OWNERSHIP privilege on table {table_name_upper} is missing.', "snowflake.clientError")
