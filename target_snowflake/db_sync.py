@@ -744,7 +744,7 @@ class DbSync:
         self.table_cache = self.get_table_columns([self.schema_name])
 
     def validate_columns(self):
-        """Adds required but not existing columns the target table according to the schema"""
+        """Validates the columns in stream to match the columns in the target table according to the schema"""
         stream_schema_message = self.stream_schema_message
         stream = stream_schema_message['stream']
         table_name = self.table_name(stream, False, True)
