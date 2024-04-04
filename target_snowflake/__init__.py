@@ -28,6 +28,8 @@ from target_snowflake.exceptions import (
     SymonException
 )
 
+import time
+
 LOGGER = get_logger('target_snowflake')
 
 # Tone down snowflake.connector log noise by only outputting warnings and higher level messages
@@ -90,7 +92,7 @@ def get_snowflake_statics(config):
 
 
 # pylint: disable=too-many-locals,too-many-branches,too-many-statements,invalid-name
-def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatTypes = None) -> None:
+def persist_lines(config, lines, timer, table_cache=None, file_format_type: FileFormatTypes = None) -> None:
     """Main loop to read and consume singer messages from stdin
 
     Params:
@@ -122,6 +124,14 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
     flush_timestamp = datetime.utcnow()
     archive_load_files = config.get('archive_load_files', False)
     archive_load_files_data = {}
+    timer['schema'] = 0
+    timer['adjust_timestamps_in_record'] = 0
+    timer['validate_record'] = 0
+    timer['record_primary_key_string'] = 0
+    timer['flush_records.records_to_file'] = 0
+    timer['flush_records.put_to_stage'] = 0
+    timer['flush_records.load_file'] = 0
+    timer['flush_records.delete_from_stage'] = 0
 
     # Loop over lines from stdin
     for line in lines:
@@ -154,7 +164,11 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
             # Validate record
             if config.get('validate_records'):
                 try:
+                    start = time.time()
                     validators[stream].validate(stream_utils.float_to_decimal(o['record']))
+                    end = time.time()
+                    timer['validate_record'] += end - start
+                    
                 except Exception as ex:
                     if type(ex).__name__ == "InvalidOperation":
                         raise InvalidValidationOperationException(
@@ -164,7 +178,10 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
                     raise RecordValidationException(f"Record does not pass schema validation. RECORD: {o['record']}") \
                         from ex
 
+            start = time.time()
             primary_key_string = stream_to_sync[stream].record_primary_key_string(o['record'])
+            end = time.time()
+            timer['record_primary_key_string'] += end - start
             if not primary_key_string:
                 primary_key_string = f'RID-{total_row_count[stream]}'
 
@@ -178,11 +195,13 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
                 current_batch_size[stream] += line_size
 
             # append record
+            # Symon: N/A
             if config.get('add_metadata_columns') or config.get('hard_delete'):
                 records_to_load[stream][primary_key_string] = stream_utils.add_metadata_values_to_record(o)
             else:
                 records_to_load[stream][primary_key_string] = o['record']
 
+            # Symon: N/A
             if archive_load_files and stream in archive_load_files_data:
                 # Keep track of min and max of the designated column
                 stream_archive_load_files_values = archive_load_files_data[stream]
@@ -226,6 +245,7 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
                     state,
                     flushed_state,
                     archive_load_files_data,
+                    timer,
                     filter_streams=filter_streams)
 
                 flush_timestamp = datetime.utcnow()
@@ -234,6 +254,7 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
                 emit_state(copy.deepcopy(flushed_state))
 
         elif t == 'SCHEMA':
+            start = time.time()
             if 'stream' not in o:
                 raise Exception(f"Line is missing required key 'stream': {line}")
 
@@ -264,6 +285,7 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
                                                   state,
                                                   flushed_state,
                                                   archive_load_files_data,
+                                                  timer,
                                                   filter_streams=filter_streams)
 
                     # emit latest encountered state
@@ -322,6 +344,8 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
                 row_count[stream] = 0
                 total_row_count[stream] = 0
                 current_batch_size[stream] = 0
+            end = time.time()
+            timer['schema'] += end - start
 
         elif t == 'ACTIVATE_VERSION':
             LOGGER.debug('ACTIVATE_VERSION message')
@@ -342,7 +366,7 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
     if sum(row_count.values()) > 0:
         # flush all streams one last time, delete records if needed, reset counts and then emit current state
         flushed_state = flush_streams(records_to_load, row_count, current_batch_size, stream_to_sync, config, state, flushed_state,
-                                      archive_load_files_data)
+                                      archive_load_files_data, timer)
 
     # emit latest state
     emit_state(copy.deepcopy(flushed_state))
@@ -358,6 +382,7 @@ def flush_streams(
         state,
         flushed_state,
         archive_load_files_data,
+        timer,
         filter_streams=None):
     """
     Flushes all buckets and resets records count to 0 as well as empties records to load list
@@ -374,6 +399,7 @@ def flush_streams(
     """
     parallelism = config.get("parallelism", DEFAULT_PARALLELISM)
     max_parallelism = config.get("max_parallelism", DEFAULT_MAX_PARALLELISM)
+    LOGGER.info(f"Parallelism: {parallelism}, Max Parallelism: {max_parallelism}")
 
     # Parallelism 0 means auto parallelism:
     #
@@ -401,6 +427,7 @@ def flush_streams(
             row_count=row_count,
             current_batch_size=current_batch_size,
             db_sync=stream_to_sync[stream],
+            timer = timer,
             no_compression=config.get('no_compression'),
             delete_rows=config.get('hard_delete'),
             temp_dir=config.get('temp_dir'),
@@ -433,12 +460,12 @@ def flush_streams(
     return flushed_state
 
 
-def load_stream_batch(stream, records, row_count, current_batch_size, db_sync, no_compression=False, delete_rows=False,
+def load_stream_batch(stream, records, row_count, current_batch_size, db_sync, timer, no_compression=False, delete_rows=False,
                       temp_dir=None, archive_load_files=None):
     """Load one batch of the stream into target table"""
     # Load into snowflake
     if row_count[stream] > 0:
-        flush_records(stream, records, db_sync, temp_dir, no_compression, archive_load_files)
+        flush_records(stream, records, db_sync, timer, temp_dir, no_compression, archive_load_files)
 
         # Delete soft-deleted, flagged rows - where _sdc_deleted at is not null
         if delete_rows:
@@ -452,6 +479,7 @@ def load_stream_batch(stream, records, row_count, current_batch_size, db_sync, n
 def flush_records(stream: str,
                   records: List[Dict],
                   db_sync: DbSync,
+                  timer,
                   temp_dir: str = None,
                   no_compression: bool = False,
                   archive_load_files: Dict = None) -> None:
@@ -471,24 +499,34 @@ def flush_records(stream: str,
         None
     """
     # Generate file on disk in the required format
+    start = time.time()
     filepath = db_sync.file_format.formatter.records_to_file(records,
                                                              db_sync.flatten_schema,
                                                              compression=not no_compression,
                                                              dest_dir=temp_dir,
                                                              data_flattening_max_level=
                                                              db_sync.data_flattening_max_level)
+    end = time.time()
+    timer['flush_records.records_to_file'] += end - start
 
     # Get file stats
     row_count = len(records)
     size_bytes = os.path.getsize(filepath)
 
     # Upload to s3 and load into Snowflake
+    start = time.time()
     s3_key = db_sync.put_to_stage(filepath, stream, row_count, temp_dir=temp_dir)
+    end = time.time()
+    timer['flush_records.put_to_stage'] += end - start
+    start = time.time()
     db_sync.load_file(s3_key, row_count, size_bytes)
+    end = time.time()
+    timer['flush_records.load_file'] += end - start
 
     # Delete file from local disk
     os.remove(filepath)
 
+    # Symon: NA
     if archive_load_files:
         stream_name_parts = stream_utils.stream_name_to_dict(stream)
         if 'schema_name' not in stream_name_parts or 'table_name' not in stream_name_parts:
@@ -519,12 +557,16 @@ def flush_records(stream: str,
         db_sync.copy_to_archive(s3_key, archive_key, archive_metadata)
 
     # Delete file from S3
+    start = time.time()
     db_sync.delete_from_stage(stream, s3_key)
+    end = time.time()
+    timer['flush_records.delete_from_stage'] += end - start
 
 
 def main():
     """Main function"""
     try:
+        timer = {}
         error_info = None
         arg_parser = argparse.ArgumentParser()
         arg_parser.add_argument('-c', '--config', help='Config file')
@@ -541,7 +583,7 @@ def main():
 
         # Consume singer messages
         singer_messages = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-        persist_lines(config, singer_messages, table_cache, file_format_type)
+        persist_lines(config, singer_messages, timer, table_cache, file_format_type)
 
         LOGGER.debug("Exiting normally")
     except SymonException as e:
@@ -581,6 +623,9 @@ def main():
                 # error occurred before args was parsed correctly, log the error
                 error_info_json = json.dumps(error_info)
                 LOGGER.info(f'{ERROR_START_MARKER}{error_info_json}{ERROR_END_MARKER}')
+        
+        print('----timer----')
+        print(json.dumps(timer))
 
 
 if __name__ == '__main__':
