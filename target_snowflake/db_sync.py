@@ -277,6 +277,10 @@ class DbSync:
             self.data_flattening_max_level = self.connection_config.get('data_flattening_max_level', 0)
             self.flatten_schema = flattening.flatten_schema(stream_schema_message['schema'],
                                                             max_level=self.data_flattening_max_level)
+            # print('---schema---')
+            # print(json.dumps(stream_schema_message['schema']))
+            # print('---flatten_schema---')
+            # print(json.dumps(self.flatten_schema))
 
         # Use external stage
         if connection_config.get('s3_bucket', None):
