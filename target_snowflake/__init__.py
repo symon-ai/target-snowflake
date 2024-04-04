@@ -624,8 +624,8 @@ def main():
                 error_info_json = json.dumps(error_info)
                 LOGGER.info(f'{ERROR_START_MARKER}{error_info_json}{ERROR_END_MARKER}')
         
-        print('----timer----')
-        print(json.dumps(timer))
+        LOGGER.info('----timer----')
+        LOGGER.info(json.dumps(timer))
 
 
 if __name__ == '__main__':
