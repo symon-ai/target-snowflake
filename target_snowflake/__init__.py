@@ -128,6 +128,7 @@ def persist_lines(config, lines, timer, table_cache=None, file_format_type: File
     timer['adjust_timestamps_in_record'] = 0
     timer['validate_record'] = 0
     timer['record_primary_key_string'] = 0
+    timer['primary_key_count_check'] = 0
     timer['flush_records.records_to_file'] = 0
     timer['flush_records.put_to_stage'] = 0
     timer['flush_records.load_file'] = 0
@@ -157,10 +158,10 @@ def persist_lines(config, lines, timer, table_cache=None, file_format_type: File
             # Get schema for this record's stream
             stream = o['stream']
 
-            start = time.time()
-            stream_utils.adjust_timestamps_in_record(o['record'], schemas[stream])
-            end = time.time()
-            timer['adjust_timestamps_in_record'] += end - start
+            # start = time.time()
+            # stream_utils.adjust_timestamps_in_record(o['record'], schemas[stream])
+            # end = time.time()
+            # timer['adjust_timestamps_in_record'] += end - start
 
             # Validate record
             if config.get('validate_records'):
@@ -190,10 +191,13 @@ def persist_lines(config, lines, timer, table_cache=None, file_format_type: File
                 records_to_load[stream] = {}
 
             # increment row count only when a new PK is encountered in the current batch
+            start = time.time()
             if primary_key_string not in records_to_load[stream]:
                 row_count[stream] += 1
                 total_row_count[stream] += 1
                 current_batch_size[stream] += line_size
+            end = time.time()
+            timer['primary_key_count_check'] += end - start
 
             # append record
             # Symon: N/A

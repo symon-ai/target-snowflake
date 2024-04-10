@@ -277,6 +277,7 @@ class DbSync:
             self.data_flattening_max_level = self.connection_config.get('data_flattening_max_level', 0)
             self.flatten_schema = flattening.flatten_schema(stream_schema_message['schema'],
                                                             max_level=self.data_flattening_max_level)
+            # print(self.data_flattening_max_level)
             # print('---schema---')
             # print(json.dumps(stream_schema_message['schema']))
             # print('---flatten_schema---')
@@ -395,18 +396,18 @@ class DbSync:
         """Generate a unique PK string in the record"""
         if len(self.stream_schema_message['key_properties']) == 0:
             return None
-        flatten = flattening.flatten_record(record, self.flatten_schema, max_level=self.data_flattening_max_level)
+        # flatten = flattening.flatten_record(record, self.flatten_schema, max_level=self.data_flattening_max_level)
 
         key_props = []
         for key_prop in self.stream_schema_message['key_properties']:
-            if key_prop not in flatten or flatten[key_prop] is None:
+            if key_prop not in record or record[key_prop] is None:
                 raise SymonException(
                     f'Primary key "{key_prop}" does not exist in record or is null. '
-                    f"Available fields: {list(flatten.keys())}",
+                    f"Available fields: {list(record.keys())}",
                     "snowflake.clientError"
                 )
 
-            key_props.append(str(flatten[key_prop]))
+            key_props.append(str(record[key_prop]))
 
         return ','.join(key_props)
 
