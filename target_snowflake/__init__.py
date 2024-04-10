@@ -163,6 +163,17 @@ def persist_lines(config, lines, timer, table_cache=None, file_format_type: File
             # end = time.time()
             # timer['adjust_timestamps_in_record'] += end - start
 
+            # query = 'select t1.*, t2.* from table select t1.*, t2.* from "90COL5MROW_NO_PARALLELISM" t1 join "90COL5MROW_NO_PARALLELISM_NEW" t2 on t1."0_NUM" = t2."0_NUM" where '
+            # for col in o['record']:
+            #     colname = col.upper()
+            #     if colname == "0_NUM": continue
+            #     query += f't1."{colname}" <> t2."{colname}" or '
+            
+            # query = query[:-4]
+            # print(query)
+            # if len(query) > 100: 
+            #     raise Exception('query')
+
             # Validate record
             if config.get('validate_records'):
                 try:
@@ -436,7 +447,8 @@ def flush_streams(
             no_compression=config.get('no_compression'),
             delete_rows=config.get('hard_delete'),
             temp_dir=config.get('temp_dir'),
-            archive_load_files=copy.copy(archive_load_files_data.get(stream, None))
+            archive_load_files=copy.copy(archive_load_files_data.get(stream, None)),
+            insert=config.get('insert', False)
         ) for stream in streams_to_flush)
 
     # reset flushed stream records to empty to avoid flushing same records
@@ -466,11 +478,11 @@ def flush_streams(
 
 
 def load_stream_batch(stream, records, row_count, current_batch_size, db_sync, timer, no_compression=False, delete_rows=False,
-                      temp_dir=None, archive_load_files=None):
+                      temp_dir=None, archive_load_files=None, insert=False):
     """Load one batch of the stream into target table"""
     # Load into snowflake
     if row_count[stream] > 0:
-        flush_records(stream, records, db_sync, timer, temp_dir, no_compression, archive_load_files)
+        flush_records(stream, records, db_sync, timer, temp_dir, no_compression, archive_load_files, insert)
 
         # Delete soft-deleted, flagged rows - where _sdc_deleted at is not null
         if delete_rows:
@@ -487,7 +499,8 @@ def flush_records(stream: str,
                   timer,
                   temp_dir: str = None,
                   no_compression: bool = False,
-                  archive_load_files: Dict = None) -> None:
+                  archive_load_files: Dict = None,
+                  insert: bool = False) -> None:
     """
     Takes a list of record messages and loads it into the snowflake target table
 
@@ -524,7 +537,7 @@ def flush_records(stream: str,
     end = time.time()
     timer['flush_records.put_to_stage'] += end - start
     start = time.time()
-    db_sync.load_file(s3_key, row_count, size_bytes)
+    db_sync.load_file(s3_key, row_count, size_bytes, insert)
     end = time.time()
     timer['flush_records.load_file'] += end - start
 
@@ -631,6 +644,7 @@ def main():
         
         LOGGER.info('----timer----')
         LOGGER.info(json.dumps(timer))
+        LOGGER.info(json.dumps(config))
 
 
 if __name__ == '__main__':

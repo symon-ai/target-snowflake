@@ -459,7 +459,7 @@ class DbSync:
         table_name = self.table_name(stream, False, without_schema=True)
         return f"{self.schema_name}.%{table_name}"
 
-    def load_file(self, s3_key, count, size_bytes):
+    def load_file(self, s3_key, count, size_bytes, insert):
         """Load a supported file type from snowflake stage into target table"""
         stream = self.stream_schema_message['stream']
         self.logger.info("Loading %d rows into '%s'", count, self.table_name(stream, False))
@@ -478,7 +478,7 @@ class DbSync:
         updates = 0
 
         # Insert or Update with MERGE command if primary key defined
-        if len(self.stream_schema_message['key_properties']) > 0:
+        if not insert and len(self.stream_schema_message['key_properties']) > 0:
             try:
                 inserts, updates = self._load_file_merge(
                     s3_key=s3_key,
