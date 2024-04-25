@@ -59,8 +59,10 @@ def record_to_csv_line(record: dict,
     Returns:
         string of csv line
     """
+    # Symon: records are not nested, no need to flatten
     # flatten_record = flattening.flatten_record(record, schema, max_level=data_flattening_max_level)
 
+    # Symon: replaced variable flatten_record with record in lines below
     return ','.join(
         [
             json.dumps(record[column], ensure_ascii=False) if column in record and (

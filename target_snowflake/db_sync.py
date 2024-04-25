@@ -277,11 +277,6 @@ class DbSync:
             self.data_flattening_max_level = self.connection_config.get('data_flattening_max_level', 0)
             self.flatten_schema = flattening.flatten_schema(stream_schema_message['schema'],
                                                             max_level=self.data_flattening_max_level)
-            # print(self.data_flattening_max_level)
-            # print('---schema---')
-            # print(json.dumps(stream_schema_message['schema']))
-            # print('---flatten_schema---')
-            # print(json.dumps(self.flatten_schema))
 
         # Use external stage
         if connection_config.get('s3_bucket', None):
@@ -396,8 +391,11 @@ class DbSync:
         """Generate a unique PK string in the record"""
         if len(self.stream_schema_message['key_properties']) == 0:
             return None
+
+        # Symon: records are not nested, no need to flatten
         # flatten = flattening.flatten_record(record, self.flatten_schema, max_level=self.data_flattening_max_level)
 
+        # Symon: replaced variable flatten with record in lines below
         key_props = []
         for key_prop in self.stream_schema_message['key_properties']:
             if key_prop not in record or record[key_prop] is None:
@@ -459,7 +457,7 @@ class DbSync:
         table_name = self.table_name(stream, False, without_schema=True)
         return f"{self.schema_name}.%{table_name}"
 
-    def load_file(self, s3_key, count, size_bytes, insert):
+    def load_file(self, s3_key, count, size_bytes):
         """Load a supported file type from snowflake stage into target table"""
         stream = self.stream_schema_message['stream']
         self.logger.info("Loading %d rows into '%s'", count, self.table_name(stream, False))
@@ -478,7 +476,7 @@ class DbSync:
         updates = 0
 
         # Insert or Update with MERGE command if primary key defined
-        if not insert and len(self.stream_schema_message['key_properties']) > 0:
+        if len(self.stream_schema_message['key_properties']) > 0:
             try:
                 inserts, updates = self._load_file_merge(
                     s3_key=s3_key,
