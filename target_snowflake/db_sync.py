@@ -391,7 +391,6 @@ class DbSync:
         """Generate a unique PK string in the record"""
         if len(self.stream_schema_message['key_properties']) == 0:
             return None
-
         # Symon: records are not nested, no need to flatten
         # flatten = flattening.flatten_record(record, self.flatten_schema, max_level=self.data_flattening_max_level)
 

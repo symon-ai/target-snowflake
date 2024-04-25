@@ -28,8 +28,6 @@ from target_snowflake.exceptions import (
     SymonException
 )
 
-import time
-
 LOGGER = get_logger('target_snowflake')
 
 # Tone down snowflake.connector log noise by only outputting warnings and higher level messages
@@ -149,11 +147,14 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
             # Get schema for this record's stream
             stream = o['stream']
 
+            # Symon: adjust_timesptamps_in_record validates date/datetime/time fields and resets invalid values to max_date. 
+            # skipping this for performance optimization + our records are output of computation so dates are valid.
+            # stream_utils.adjust_timestamps_in_record(o['record'], schemas[stream])
+
             # Validate record
             if config.get('validate_records'):
                 try:
                     validators[stream].validate(stream_utils.float_to_decimal(o['record']))
-                    
                 except Exception as ex:
                     if type(ex).__name__ == "InvalidOperation":
                         raise InvalidValidationOperationException(
@@ -164,7 +165,6 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
                         from ex
 
             primary_key_string = stream_to_sync[stream].record_primary_key_string(o['record'])
-
             if not primary_key_string:
                 primary_key_string = f'RID-{total_row_count[stream]}'
 
@@ -489,7 +489,6 @@ def flush_records(stream: str,
     # Delete file from local disk
     os.remove(filepath)
 
-    # Symon: NA
     if archive_load_files:
         stream_name_parts = stream_utils.stream_name_to_dict(stream)
         if 'schema_name' not in stream_name_parts or 'table_name' not in stream_name_parts:
