@@ -33,7 +33,7 @@ LOGGER = get_logger('target_snowflake')
 # Tone down snowflake.connector log noise by only outputting warnings and higher level messages
 logging.getLogger('snowflake.connector').setLevel(logging.WARNING)
 
-DEFAULT_BATCH_SIZE = 16 # Default batch size in MB
+DEFAULT_BATCH_SIZE = 64 # Default batch size in MB
 DEFAULT_PARALLELISM = 0  # 0 The number of threads used to flush tables
 DEFAULT_MAX_PARALLELISM = 16  # Don't use more than this number of threads by default when flushing streams in parallel
 
@@ -147,7 +147,9 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
             # Get schema for this record's stream
             stream = o['stream']
 
-            stream_utils.adjust_timestamps_in_record(o['record'], schemas[stream])
+            # Symon: adjust_timesptamps_in_record validates date/datetime/time fields and resets invalid values to max_date. 
+            # skipping this for performance optimization + our records are output of computation so dates are valid.
+            # stream_utils.adjust_timestamps_in_record(o['record'], schemas[stream])
 
             # Validate record
             if config.get('validate_records'):
