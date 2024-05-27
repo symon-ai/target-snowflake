@@ -122,6 +122,8 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
     flush_timestamp = datetime.utcnow()
     archive_load_files = config.get('archive_load_files', False)
     archive_load_files_data = {}
+    name=s3_prefix
+    total_col = 0
 
     # Loop over lines from stdin
     for line in lines:
@@ -343,6 +345,7 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
         # flush all streams one last time, delete records if needed, reset counts and then emit current state
         flushed_state = flush_streams(records_to_load, row_count, current_batch_size, stream_to_sync, config, state, flushed_state,
                                       archive_load_files_data)
+    LOGGER.info("name: "+name+" row: "+str(total_row_count)+", col: "+str(total_col))
 
     # emit latest state
     emit_state(copy.deepcopy(flushed_state))
