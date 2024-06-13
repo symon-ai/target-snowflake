@@ -8,6 +8,7 @@ import logging
 import os
 import sys
 import copy
+import boto3
 
 from typing import Dict, List, Optional
 from joblib import Parallel, delayed, parallel_backend
@@ -522,6 +523,68 @@ def flush_records(stream: str,
     db_sync.delete_from_stage(stream, s3_key)
 
 
+def new_entrance(config, o, file_format_type): 
+    # there should be a logic to download the 250Mb limited file from s3 with boto3
+    # we will be skipping this part for now, and upload directly from local, with a file size of 200Mb
+    
+    s3_client = boto3.client('s3')
+    
+    bucket = config["bucket"]
+    prefix = config["prefix"]
+
+    response = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix)
+    
+    schema_file = ''
+    tmp_file = ''
+        
+    for obj in response['Contents']:
+        key = obj['Key']
+        if key.endswith('.csv.gz'):
+            tmp_file = key
+        elif key.endswith('.json'):
+            schema_file = key
+    
+    local_schema_file = 'local_schema.json'
+    s3_client.download_file('wisepipe-export-jasper', schema_file, local_schema_file)
+    
+    f = open(local_schema_file)
+    schema = json.load(f)
+    # retrieve the properties from the s3 schema file
+    # key_properties should come from the config
+    # stream is not currently appended to the config, we should add it to the exportUtils
+    stream = config["stream"]
+    o = {
+        "type": "SCHEMA",
+        "stream": stream,
+        "schema": {"properties": schema['properties']},
+        "key_properties": config["key_columns"]
+    }
+    
+    local_tmp_file = 'tmp.csv.gz'
+    # the file in s3 should be compressed, we will change the parquet_to_csv to write into gzip format
+    # we may want to remove the headers otherwise we find a way to specify the file_format
+    s3_client.download_file('wisepipe-export-jasper', tmp_file, local_tmp_file)
+    
+    db_sync = DbSync(config, o, None, file_format_type)
+    
+    # db_sync.create_schema_if_not_exists()
+    # db_sync.sync_table()
+    
+    
+    
+    file_path = local_tmp_file.replace("\\", "/")
+
+    row_count = 300000
+    s3_key = db_sync.put_to_stage(file_path, stream, row_count, temp_dir=None)
+    
+    db_sync.load_file(s3_key, row_count, 100000)
+    
+    # os.remove(file_path)
+    # this should be wrapped up in a try-catch-finally block
+    # 
+    # delete the remote file anyway
+    db_sync.delete_from_stage(stream, s3_key)
+
 def main():
     """Main function"""
     try:
@@ -541,7 +604,12 @@ def main():
 
         # Consume singer messages
         singer_messages = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-        persist_lines(config, singer_messages, table_cache, file_format_type)
+        
+        flag = True
+        if flag:
+            new_entrance(config, None, file_format_type)
+        else:
+            persist_lines(config, singer_messages, table_cache, file_format_type)
 
         LOGGER.debug("Exiting normally")
     except SymonException as e:
