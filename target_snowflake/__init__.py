@@ -8,6 +8,7 @@ import logging
 import os
 import sys
 import copy
+import boto3
 
 from typing import Dict, List, Optional
 from joblib import Parallel, delayed, parallel_backend
@@ -53,6 +54,9 @@ def add_metadata_columns_to_schema(schema_message):
     extended_schema_message['schema']['properties']['_sdc_batched_at'] = {'type': ['null', 'string'],
                                                                           'format': 'date-time'}
     extended_schema_message['schema']['properties']['_sdc_deleted_at'] = {'type': ['null', 'string']}
+    
+    LOGGER.info("---------extended_schema_message----------")
+    LOGGER.info(extended_schema_message)
 
     return extended_schema_message
 
@@ -293,6 +297,8 @@ def persist_lines(config, lines, table_cache=None, file_format_type: FileFormatT
                                                     table_cache,
                                                     file_format_type)
                 else:
+                    LOGGER.info("-----------------o-----------------")
+                    LOGGER.info(o)
                     stream_to_sync[stream] = DbSync(config, o, table_cache, file_format_type)
 
                 if archive_load_files:
@@ -386,12 +392,17 @@ def flush_streams(
             parallelism = max_parallelism
         else:
             parallelism = n_streams_to_flush
-
+    
+    LOGGER.info("-----number of parallelism-----")
+    LOGGER.info(parallelism)
     # Select the required streams to flush
     if filter_streams:
         streams_to_flush = filter_streams
     else:
         streams_to_flush = streams.keys()
+    
+    LOGGER.info("-----streams to flush-----")
+    LOGGER.info(streams_to_flush)
 
     # Single-host, thread-based parallelism
     with parallel_backend('threading', n_jobs=parallelism):
@@ -471,23 +482,35 @@ def flush_records(stream: str,
         None
     """
     # Generate file on disk in the required format
+    LOGGER.info("-----------dest_dir--------------")
     filepath = db_sync.file_format.formatter.records_to_file(records,
                                                              db_sync.flatten_schema,
                                                              compression=not no_compression,
                                                              dest_dir=temp_dir,
                                                              data_flattening_max_level=
                                                              db_sync.data_flattening_max_level)
+    
+    LOGGER.info("------filepath------")
+    LOGGER.info(filepath)
+    filepath = "/Users/jiawen/Downloads/jun_11.parquet".replace("\\", "/")
+    LOGGER.info(filepath)
 
     # Get file stats
     row_count = len(records)
     size_bytes = os.path.getsize(filepath)
 
     # Upload to s3 and load into Snowflake
+    print("-----before put_to_stage-----")
+    print(stream)
+    print(row_count)
+    print(temp_dir)
     s3_key = db_sync.put_to_stage(filepath, stream, row_count, temp_dir=temp_dir)
-    db_sync.load_file(s3_key, row_count, size_bytes)
+    LOGGER.info("-------s3_key--------")
+    LOGGER.info(s3_key)
+    # db_sync.load_file(s3_key, row_count, size_bytes)
 
     # Delete file from local disk
-    os.remove(filepath)
+    # os.remove(filepath)
 
     if archive_load_files:
         stream_name_parts = stream_utils.stream_name_to_dict(stream)
@@ -519,8 +542,75 @@ def flush_records(stream: str,
         db_sync.copy_to_archive(s3_key, archive_key, archive_metadata)
 
     # Delete file from S3
-    db_sync.delete_from_stage(stream, s3_key)
+    # db_sync.delete_from_stage(stream, s3_key)
 
+def new_entrance(config, o, file_format_type): 
+    # there should be a logic to download the 250Mb limited file from s3 with boto3
+    # we will be skipping this part for now, and upload directly from local, with a file size of 200Mb
+    
+    s3_client = boto3.client('s3')
+    
+    bucket = config["bucket"]
+    prefix = config["prefix"]
+
+    response = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix)
+    print("-----response-----")
+    print(response['Contents'])
+    
+    schema_file = ''
+    tmp_file = ''
+        
+    for obj in response['Contents']:
+        key = obj['Key']
+        if key.endswith('.csv.gz'):
+            tmp_file = key
+        elif key.endswith('.json'):
+            schema_file = key
+            
+            
+    
+    local_schema_file = 'local_schema.json'
+    s3_client.download_file('wisepipe-export-jasper', schema_file, local_schema_file)
+    
+    f = open(local_schema_file)
+    schema = json.load(f)
+    # retrieve the properties from the s3 schema file
+    # key_properties should come from the config
+    # stream is not currently appended to the config, we should add it to the exportUtils
+    o = {
+        "type": "SCHEMA",
+        "stream": "JASPER_200_MB",
+        "schema": {"properties": schema['properties']},
+        "key_properties": ["0_num"]
+    }
+    
+    print(o)
+    
+    local_tmp_file = 'tmp.csv.gz'
+    # the file in s3 should be compressed, we will change the parquet_to_csv to write into gzip format
+    # we may want to remove the headers otherwise we find a way to specify the file_format
+    s3_client.download_file('wisepipe-export-jasper', tmp_file, local_tmp_file)
+    
+    db_sync = DbSync(config, o, None, file_format_type)
+    
+    # db_sync.create_schema_if_not_exists()
+    # db_sync.sync_table()
+    
+    
+    
+    file_path = local_tmp_file.replace("\\", "/")
+    stream = config["stream"]
+    row_count = 300000
+    s3_key = db_sync.put_to_stage(file_path, stream, row_count, temp_dir=None)
+    
+    db_sync.load_file(s3_key, row_count, 100000)
+    
+    # os.remove(file_path)
+    # this should be wrapped up in a try-catch-finally block
+    # 
+    # delete the remote file anyway
+    db_sync.delete_from_stage(stream, s3_key)
+    
 
 def main():
     """Main function"""
@@ -541,7 +631,15 @@ def main():
 
         # Consume singer messages
         singer_messages = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-        persist_lines(config, singer_messages, table_cache, file_format_type)
+        
+        tmp_flag = True
+        
+        if tmp_flag:
+            o = {"type": "SCHEMA", "stream": "JASPER_200_MB", "schema": {"properties": {"str_0": {"type": ["string", "null"]}, "num_0": {"type": ["number", "null"]}, "bool_0": {"type": ["boolean", "null"]}, "str_1": {"type": ["string", "null"]}, "key": {"type": ["number", "null"]}}, "type": ["null", "object"], "additionalProperties": False}, "key_properties": ["key"]}
+            # o = json.loads(line)
+            new_entrance(config, o, file_format_type)
+        else:
+            persist_lines(config, singer_messages, table_cache, file_format_type)
 
         LOGGER.debug("Exiting normally")
     except SymonException as e:

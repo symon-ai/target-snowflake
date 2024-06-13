@@ -191,6 +191,8 @@ class DbSync:
         """
         self.connection_config = connection_config
         self.stream_schema_message = stream_schema_message
+        print("----lets see what the stream schema message looks like----")
+        print(stream_schema_message)
         self.table_cache = table_cache
 
         # logger to be used across the class's methods
@@ -238,13 +240,20 @@ class DbSync:
             #                                               }
             #                                           }
             config_default_target_schema = self.connection_config.get('default_target_schema', '').strip()
+            self.logger.info("config_default_target_schema: %s", config_default_target_schema)
             config_schema_mapping = self.connection_config.get('schema_mapping', {})
+            self.logger.info("config_schema_mapping: %s", config_schema_mapping)
 
             stream_name = stream_schema_message['stream']
+            print("---------------stream_name----------------")
+            print(stream_name)
             stream_schema_name = stream_utils.stream_name_to_dict(stream_name)['schema_name']
+            self.logger.info("stream_schema_name: %s", stream_schema_name)
             if config_schema_mapping and stream_schema_name in config_schema_mapping:
+                self.logger.info("-----first section-----")
                 self.schema_name = config_schema_mapping[stream_schema_name].get('target_schema')
             elif config_default_target_schema:
+                self.logger.info("-----second section-----")
                 self.schema_name = config_default_target_schema
 
             if not self.schema_name:
@@ -275,8 +284,13 @@ class DbSync:
                                                                               self.grantees)
 
             self.data_flattening_max_level = self.connection_config.get('data_flattening_max_level', 0)
+            self.logger.info("----stream_schema_message['schema']----")
+            self.logger.info(stream_schema_message['schema'])
+            self.logger.info(self.data_flattening_max_level)
             self.flatten_schema = flattening.flatten_schema(stream_schema_message['schema'],
                                                             max_level=self.data_flattening_max_level)
+            self.logger.info("----self.flatten_schema----")
+            self.logger.info(self.flatten_schema)
 
         # Use external stage
         if connection_config.get('s3_bucket', None):
@@ -460,6 +474,8 @@ class DbSync:
         """Load a supported file type from snowflake stage into target table"""
         stream = self.stream_schema_message['stream']
         self.logger.info("Loading %d rows into '%s'", count, self.table_name(stream, False))
+        
+        self.logger.info("self.flatten_schema: %s", self.flatten_schema)
 
         # Get list if columns with types
         columns_with_trans = [
@@ -470,6 +486,9 @@ class DbSync:
             }
             for (name, schema) in self.flatten_schema.items()
         ]
+        
+        self.logger.info("columns_with_trans---------")
+        self.logger.info(columns_with_trans)
 
         inserts = 0
         updates = 0
@@ -527,7 +546,7 @@ class DbSync:
                     columns=columns_with_trans,
                     pk_merge_condition=self.primary_key_merge_condition()
                 )
-                self.logger.debug('Running query: %s', merge_sql)
+                self.logger.info('Running query: %s', merge_sql)
                 cur.execute(merge_sql)
                 # Get number of inserted and updated records
                 results = cur.fetchall()
@@ -621,6 +640,8 @@ class DbSync:
     def create_schema_if_not_exists(self):
         """Create target schema if not exists"""
         schema_name = self.schema_name
+        print("----------there's a schema name---------")
+        print(schema_name)
         schema_rows = 0
 
         # table_cache is an optional pre-collected list of available objects in snowflake
@@ -816,7 +837,11 @@ class DbSync:
         stream_schema_message = self.stream_schema_message
         stream = stream_schema_message['stream']
         table_name_upper = self.table_name(stream, False, True)
+        print("-----------------table_name_upper-----------------")
+        print(table_name_upper)
         table_name_with_schema = self.table_name(stream, False)
+        print("-----------------table_name_with_schema-----------------")
+        print(table_name_with_schema)
         schema_name_upper = self.schema_name.upper()
 
         if self.table_cache:

@@ -40,6 +40,8 @@ def flatten_schema(d, parent_key=None, sep='__', level=0, max_level=0):
     """
     if parent_key is None:
         parent_key = []
+    print("------d['properties']------")
+    print(d['properties'])
 
     items = []
     if 'properties' not in d:
@@ -57,14 +59,20 @@ def flatten_schema(d, parent_key=None, sep='__', level=0, max_level=0):
             if value_type in ['string', 'array', 'object']:
                 list(v.values())[0][0]['type'] = ['null', value_type]
                 items.append((new_key, list(v.values())[0][0]))
+    
+    print("----items----")
+    print(items)
 
     key_func = lambda item: item[0]
     sorted_items = sorted(items, key=key_func)
     for k, g in itertools.groupby(sorted_items, key=key_func):
         if len(list(g)) > 1:
             raise ValueError(f'Duplicate column name produced in schema: {k}')
+    
+    print("-------sorted_items-------")
+    print(sorted_items)
 
-    return dict(sorted_items)
+    return dict(items)
 
 
 def _should_json_dump_value(key, value, schema=None):
