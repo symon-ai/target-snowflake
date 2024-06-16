@@ -567,10 +567,8 @@ def new_entrance(config, o, file_format_type):
     
     db_sync = DbSync(config, o, None, file_format_type)
     
-    # db_sync.create_schema_if_not_exists()
-    # db_sync.sync_table()
-    
-    
+    db_sync.create_schema_if_not_exists()
+    db_sync.sync_table()
     
     file_path = local_tmp_file.replace("\\", "/")
 
