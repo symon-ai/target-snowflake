@@ -19,14 +19,16 @@ class SnowflakeUploadClient(BaseUploadClient):
         key = os.path.basename(file)
         normfile = os.path.normpath(file).replace('\\', '/')
 
-        compression = '' if self.connection_config.get('no_compression', '') else "SOURCE_COMPRESSION=GZIP"
+        compression = '' if self.connection_config.get('no_compression', '') else ''
         stage = self.dblink.get_stage_name(stream)
 
         self.logger.info('Target internal stage: %s, local file: %s, key: %s', stage, normfile, key)
-        cmd = f"PUT 'file://{normfile}' '@{stage}' {compression}"
+        cmd = f"PUT 'file://{normfile}' '@sf_tut_stage_2' {compression}"
         self.logger.info(cmd)
 
         with self.dblink.open_connection() as connection:
+            use_schema = f"USE SCHEMA JAY_TEST"
+            connection.cursor().execute(use_schema)
             connection.cursor().execute(cmd)
 
         return key
@@ -37,6 +39,8 @@ class SnowflakeUploadClient(BaseUploadClient):
         stage = self.dblink.get_stage_name(stream)
 
         with self.dblink.open_connection() as connection:
+            use_schema = f"USE SCHEMA JAY_TEST"
+            connection.cursor().execute(use_schema)
             connection.cursor().execute(f"REMOVE '@{stage}/{key}'")
 
     def copy_object(self, copy_source: str, target_bucket: str, target_key: str, target_metadata: dict) -> None:

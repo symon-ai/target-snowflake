@@ -9,6 +9,7 @@ import os
 import sys
 import copy
 import boto3
+import time
 
 from typing import Dict, List, Optional
 from joblib import Parallel, delayed, parallel_backend
@@ -529,23 +530,29 @@ def new_entrance(config, o, file_format_type):
     
     s3_client = boto3.client('s3')
     
-    bucket = config["bucket"]
-    prefix = config["prefix"]
+    # bucket = config["bucket"]
+    # prefix = config["prefix"]
+    bucket = "wisepipe-computations-permanent-jasper"
+    prefix = "runs/21b37980-b0bb-4f89-9b82-c63b421c81a3/Cxnu46em641h/HP4nprdueAvjqQ/default/"
 
     response = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix)
     
     schema_file = ''
     tmp_file = ''
+    
+    start_time = time.time()
         
     for obj in response['Contents']:
         key = obj['Key']
         if key.endswith('.csv.gz'):
             tmp_file = key
+        elif key.endswith('.parquet'):
+            tmp_file = key
         elif key.endswith('.json'):
             schema_file = key
     
     local_schema_file = 'local_schema.json'
-    s3_client.download_file('wisepipe-export-jasper', schema_file, local_schema_file)
+    s3_client.download_file('wisepipe-computations-permanent-jasper', schema_file, local_schema_file)
     
     f = open(local_schema_file)
     schema = json.load(f)
@@ -560,10 +567,13 @@ def new_entrance(config, o, file_format_type):
         "key_properties": config["key_columns"]
     }
     
-    local_tmp_file = 'tmp.csv.gz'
+    local_tmp_file = 'tmp.parquet'
     # the file in s3 should be compressed, we will change the parquet_to_csv to write into gzip format
     # we may want to remove the headers otherwise we find a way to specify the file_format
-    s3_client.download_file('wisepipe-export-jasper', tmp_file, local_tmp_file)
+    s3_client.download_file('wisepipe-computations-permanent-jasper', tmp_file, local_tmp_file)
+    
+    end_time = time.time()
+    print(f"Time taken to download the file: {end_time - start_time}")
     
     db_sync = DbSync(config, o, None, file_format_type)
     
@@ -573,13 +583,20 @@ def new_entrance(config, o, file_format_type):
     file_path = local_tmp_file.replace("\\", "/")
 
     row_count = 300000
+    start_time = time.time()
     s3_key = db_sync.put_to_stage(file_path, stream, row_count, temp_dir=None)
+    end_time = time.time()
+    print("s3_key: ", s3_key)
+    print(f"Time taken to upload the file: {end_time - start_time}")
     
+    start_time = time.time()
     db_sync.load_file(s3_key, row_count, 100000)
+    end_time = time.time()
+    print(f"Time taken to load the file: {end_time - start_time}")
     
-    # os.remove(file_path)
+    os.remove(file_path)
     # this should be wrapped up in a try-catch-finally block
-    # 
+    #
     # delete the remote file anyway
     db_sync.delete_from_stage(stream, s3_key)
 

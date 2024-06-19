@@ -215,10 +215,10 @@ class DbSync:
         self.grantees = None
         self.file_format = FileFormat(self.connection_config['file_format'], self.query, file_format_type)
 
-        if not self.connection_config.get('stage') and self.file_format.file_format_type == FileFormatTypes.PARQUET:
-            self.logger.error("Table stages with Parquet file format is not supported. "
-                              "Use named stages with Parquet file format or table stages with CSV files format")
-            sys.exit(1)
+        # if not self.connection_config.get('stage') and self.file_format.file_format_type == FileFormatTypes.PARQUET:
+        #     self.logger.error("Table stages with Parquet file format is not supported. "
+        #                       "Use named stages with Parquet file format or table stages with CSV files format")
+        #     sys.exit(1)
 
         # Init stream schema pylint: disable=line-too-long
         if self.stream_schema_message is not None:
@@ -454,7 +454,8 @@ class DbSync:
             return stage
 
         table_name = self.table_name(stream, False, without_schema=True)
-        return f"{self.schema_name}.%{table_name}"
+        # return f"{self.schema_name}.%{table_name}"
+        return 'sf_tut_stage_2'
 
     def load_file(self, s3_key, count, size_bytes):
         """Load a supported file type from snowflake stage into target table"""
@@ -527,7 +528,10 @@ class DbSync:
                     columns=columns_with_trans,
                     pk_merge_condition=self.primary_key_merge_condition()
                 )
+                self.logger.info('Running query: %s', merge_sql)
                 self.logger.debug('Running query: %s', merge_sql)
+                use_schema = f"USE SCHEMA JAY_TEST"
+                cur.execute(use_schema)
                 cur.execute(merge_sql)
                 # Get number of inserted and updated records
                 results = cur.fetchall()
