@@ -11,6 +11,8 @@ import copy
 import boto3
 import time
 
+import multiprocessing
+
 from typing import Dict, List, Optional
 from joblib import Parallel, delayed, parallel_backend
 from jsonschema import Draft7Validator, FormatChecker
@@ -42,6 +44,15 @@ DEFAULT_MAX_PARALLELISM = 16  # Don't use more than this number of threads by de
 # for symon error logging
 ERROR_START_MARKER = '[target_error_start]'
 ERROR_END_MARKER = '[target_error_end]'
+
+# one s3_client per process
+s3_client = None
+db_sync = None
+def initialize_s3_client_db_sync(config, o, file_format_type):
+    global s3_client
+    global db_sync
+    s3_client = boto3.client('s3')
+    db_sync = DbSync(config, o, None, file_format_type)
 
 def add_metadata_columns_to_schema(schema_message):
     """Metadata _sdc columns according to the stitch documentation at
@@ -77,18 +88,22 @@ def get_snowflake_statics(config):
     Returns:
         tuple of retrieved items: table_cache, file_format_type
     """
-    table_cache = []
-    if not ('disable_table_cache' in config and config['disable_table_cache']):
-        LOGGER.info('Getting catalog objects from table cache...')
+    # table_cache = []
+    # if not ('disable_table_cache' in config and config['disable_table_cache']):
+    #     LOGGER.info('Getting catalog objects from table cache...')
 
-        db = DbSync(config)  # pylint: disable=invalid-name
-        table_cache = db.get_table_columns(
-            table_schemas=stream_utils.get_schema_names_from_config(config))
+    #     db = DbSync(config)  # pylint: disable=invalid-name
+    #     table_cache = db.get_table_columns(
+    #         table_schemas=stream_utils.get_schema_names_from_config(config))
 
     # The file format is detected at DbSync init time
+    db = DbSync(config)
     file_format_type = db.file_format.file_format_type
+    
+    print("file_format_type")
+    print(file_format_type)
 
-    return table_cache, file_format_type
+    return file_format_type
 
 
 # pylint: disable=too-many-locals,too-many-branches,too-many-statements,invalid-name
@@ -524,35 +539,56 @@ def flush_records(stream: str,
     db_sync.delete_from_stage(stream, s3_key)
 
 
+def parallel_s3_download(s3_csv_lists, config, o, file_format_type):
+    pool = multiprocessing.Pool(multiprocessing.cpu_count(), initialize_s3_client_db_sync(config, o, file_format_type))
+    pool.map(download_file, s3_csv_lists)
+    pool.close()
+    pool.join()
+
+
+def download_file(job):
+    bucket, key, filename, stream = job
+    download_start_time = time.time()
+    s3_client.download_file(bucket, key, filename)
+    download_end_time = time.time()
+    print('downloaded file with file name... {}'.format(key))
+    print(f"Start time for {key} as {download_start_time} and end time as {download_end_time}")
+    
+    # upload to snowflake
+    file_path = filename.replace("\\", "/")
+
+    row_count = 300000
+    uploading_start_time = time.time()
+    s3_key = db_sync.put_to_stage(file_path, stream, row_count, temp_dir=None)
+    uploading_end_time = time.time()
+    print("s3_key: ", s3_key)
+    print(f"Start time for {key} as {uploading_start_time} and end time as {uploading_end_time}")
+    
+    # remove from local after uploading to snowflake
+    os.remove(file_path)
+    
+
 def new_entrance(config, o, file_format_type): 
     # there should be a logic to download the 250Mb limited file from s3 with boto3
     # we will be skipping this part for now, and upload directly from local, with a file size of 200Mb
     
     s3_client = boto3.client('s3')
     
-    # bucket = config["bucket"]
-    # prefix = config["prefix"]
-    bucket = "wisepipe-computations-permanent-jasper"
-    prefix = "runs/21b37980-b0bb-4f89-9b82-c63b421c81a3/Cxnu46em641h/HP4nprdueAvjqQ/default/"
+    bucket = config["bucket"]
+    prefix = config["prefix"]
 
     response = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix)
     
-    schema_file = ''
-    tmp_file = ''
-    
-    start_time = time.time()
-        
+    s3_csv_lists = []
+    schema_file = None
     for obj in response['Contents']:
-        key = obj['Key']
-        if key.endswith('.csv.gz'):
-            tmp_file = key
-        elif key.endswith('.parquet'):
-            tmp_file = key
-        elif key.endswith('.json'):
-            schema_file = key
+        if obj['Key'].endswith('.csv.gz'):
+            s3_csv_lists.append((bucket, obj['Key'], obj['Key'].split("/")[-1], config["stream"]))
+        if obj['Key'].endswith('.json'):
+            schema_file = obj['Key']
     
     local_schema_file = 'local_schema.json'
-    s3_client.download_file('wisepipe-computations-permanent-jasper', schema_file, local_schema_file)
+    s3_client.download_file(bucket, schema_file, local_schema_file)
     
     f = open(local_schema_file)
     schema = json.load(f)
@@ -561,44 +597,97 @@ def new_entrance(config, o, file_format_type):
     # stream is not currently appended to the config, we should add it to the exportUtils
     stream = config["stream"]
     o = {
-        "type": "SCHEMA",
         "stream": stream,
         "schema": {"properties": schema['properties']},
         "key_properties": config["key_columns"]
     }
     
-    local_tmp_file = 'tmp.parquet'
-    # the file in s3 should be compressed, we will change the parquet_to_csv to write into gzip format
-    # we may want to remove the headers otherwise we find a way to specify the file_format
-    s3_client.download_file('wisepipe-computations-permanent-jasper', tmp_file, local_tmp_file)
-    
-    end_time = time.time()
-    print(f"Time taken to download the file: {end_time - start_time}")
-    
     db_sync = DbSync(config, o, None, file_format_type)
-    
     db_sync.create_schema_if_not_exists()
     db_sync.sync_table()
     
-    file_path = local_tmp_file.replace("\\", "/")
+    # the file in s3 should be compressed, we will change the parquet_to_csv to write into gzip format
+    # we may want to remove the headers otherwise we find a way to specify the file_format
+    # s3_client.download_file('wisepipe-export-jasper', s3_csv_lists[0], s3_csv_lists[0].split("/")[-1])
+    
+    parallel_s3_download(s3_csv_lists, config, o, file_format_type)
+    
+    
+    for obj in s3_csv_lists:
+        stage_file_path = obj[2].replace("\\", "/")
+        print("------stage_file_path------")
+        print(stage_file_path)
+        start_time = time.time()
+        db_sync.load_file(stage_file_path, 400000, 100000)
+        end_time = time.time()
+        print(f"Time taken to load the file: {end_time - start_time}")
 
-    row_count = 300000
-    start_time = time.time()
-    s3_key = db_sync.put_to_stage(file_path, stream, row_count, temp_dir=None)
-    end_time = time.time()
-    print("s3_key: ", s3_key)
-    print(f"Time taken to upload the file: {end_time - start_time}")
+        # this should be wrapped up in a try-catch-finally block
+        #
+        # delete the remote file anyway
+        db_sync.delete_from_stage(stream, stage_file_path)
     
-    start_time = time.time()
-    db_sync.load_file(s3_key, row_count, 100000)
-    end_time = time.time()
-    print(f"Time taken to load the file: {end_time - start_time}")
     
-    os.remove(file_path)
-    # this should be wrapped up in a try-catch-finally block
-    #
-    # delete the remote file anyway
-    db_sync.delete_from_stage(stream, s3_key)
+    # schema_file = ''
+    # tmp_file = ''
+    
+    # start_time = time.time()
+        
+    # for obj in response['Contents']:
+    #     key = obj['Key']
+    #     if key.endswith('.csv.gz'):
+    #         tmp_file = key
+    #     elif key.endswith('.json'):
+    #         schema_file = key
+    
+    # local_schema_file = 'local_schema.json'
+    # s3_client.download_file('wisepipe-computations-permanent-jasper', schema_file, local_schema_file)
+    
+    # f = open(local_schema_file)
+    # schema = json.load(f)
+    # # retrieve the properties from the s3 schema file
+    # # key_properties should come from the config
+    # # stream is not currently appended to the config, we should add it to the exportUtils
+    # stream = config["stream"]
+    # o = {
+    #     "type": "SCHEMA",
+    #     "stream": stream,
+    #     "schema": {"properties": schema['properties']},
+    #     "key_properties": config["key_columns"]
+    # }
+    
+    # local_tmp_file = 'tmp.parquet'
+    # # the file in s3 should be compressed, we will change the parquet_to_csv to write into gzip format
+    # # we may want to remove the headers otherwise we find a way to specify the file_format
+    # s3_client.download_file('wisepipe-computations-permanent-jasper', tmp_file, local_tmp_file)
+    
+    # end_time = time.time()
+    # print(f"Time taken to download the file: {end_time - start_time}")
+    
+    # db_sync = DbSync(config, o, None, file_format_type)
+    
+    # db_sync.create_schema_if_not_exists()
+    # db_sync.sync_table()
+    
+    # file_path = local_tmp_file.replace("\\", "/")
+
+    # row_count = 300000
+    # start_time = time.time()
+    # s3_key = db_sync.put_to_stage(file_path, stream, row_count, temp_dir=None)
+    # end_time = time.time()
+    # print("s3_key: ", s3_key)
+    # print(f"Time taken to upload the file: {end_time - start_time}")
+    
+    # start_time = time.time()
+    # db_sync.load_file(s3_key, row_count, 100000)
+    # end_time = time.time()
+    # print(f"Time taken to load the file: {end_time - start_time}")
+    
+    # os.remove(file_path)
+    # # this should be wrapped up in a try-catch-finally block
+    # #
+    # # delete the remote file anyway
+    # db_sync.delete_from_stage(stream, s3_key)
 
 def main():
     """Main function"""
@@ -607,6 +696,9 @@ def main():
         arg_parser = argparse.ArgumentParser()
         arg_parser.add_argument('-c', '--config', help='Config file')
         args = arg_parser.parse_args()
+        
+        print("------number of cpu---------")
+        print(multiprocessing.cpu_count())
 
         if args.config:
             with open(args.config, encoding="utf8") as config_input:
@@ -615,16 +707,17 @@ def main():
             config = {}
 
         # Init columns cache
-        table_cache, file_format_type = get_snowflake_statics(config)
+        file_format_type = get_snowflake_statics(config)
+        new_entrance(config, None, file_format_type)
 
-        # Consume singer messages
-        singer_messages = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
+        # # Consume singer messages
+        # singer_messages = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
         
-        flag = True
-        if flag:
-            new_entrance(config, None, file_format_type)
-        else:
-            persist_lines(config, singer_messages, table_cache, file_format_type)
+        # flag = True
+        # if flag:
+        #     new_entrance(config, None, file_format_type)
+        # else:
+        #     persist_lines(config, singer_messages, table_cache, file_format_type)
 
         LOGGER.debug("Exiting normally")
     except SymonException as e:

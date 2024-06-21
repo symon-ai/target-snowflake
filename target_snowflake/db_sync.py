@@ -454,8 +454,7 @@ class DbSync:
             return stage
 
         table_name = self.table_name(stream, False, without_schema=True)
-        # return f"{self.schema_name}.%{table_name}"
-        return 'sf_tut_stage_2'
+        return f"{self.schema_name}.%{table_name}"
 
     def load_file(self, s3_key, count, size_bytes):
         """Load a supported file type from snowflake stage into target table"""
@@ -530,8 +529,6 @@ class DbSync:
                 )
                 self.logger.info('Running query: %s', merge_sql)
                 self.logger.debug('Running query: %s', merge_sql)
-                use_schema = f"USE SCHEMA JAY_TEST"
-                cur.execute(use_schema)
                 cur.execute(merge_sql)
                 # Get number of inserted and updated records
                 results = cur.fetchall()
