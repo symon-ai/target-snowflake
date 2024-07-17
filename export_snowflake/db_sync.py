@@ -3,16 +3,17 @@ import sys
 import snowflake.connector
 import re
 import time
+import os
 
 from typing import List, Dict, Union, Tuple, Set
 from singer import get_logger
-from target_snowflake import flattening
-from target_snowflake import stream_utils
-from target_snowflake.file_format import FileFormat, FileFormatTypes
+from export_snowflake import flattening
+from export_snowflake import stream_utils
+from export_snowflake.file_format import FileFormat, FileFormatTypes
 
-from target_snowflake.exceptions import TooManyRecordsException, SymonException
-from target_snowflake.upload_clients.s3_upload_client import S3UploadClient
-from target_snowflake.upload_clients.snowflake_upload_client import SnowflakeUploadClient
+from export_snowflake.exceptions import TooManyRecordsException, SymonException
+from export_snowflake.upload_clients.s3_upload_client import S3UploadClient
+from export_snowflake.upload_clients.snowflake_upload_client import SnowflakeUploadClient
 
 
 def validate_config(config):
@@ -78,9 +79,6 @@ def column_type(schema_property):
     if 'object' in property_type or 'array' in property_type:
         col_type = 'variant'
 
-    # Every date-time JSON value is currently mapped to TIMESTAMP_NTZ
-    elif property_format == 'date-time':
-        col_type = 'timestamp_ntz'
     elif property_format == 'date':
         col_type = 'date'
     elif property_format == 'time':
@@ -95,6 +93,9 @@ def column_type(schema_property):
         col_type = 'number'
     elif 'boolean' in property_type:
         col_type = 'boolean'
+    elif 'date-time' in property_type:
+        # Every date-time JSON value is currently mapped to TIMESTAMP_NTZ
+        col_type = 'timestamp_ntz'
 
     return col_type
 
@@ -194,7 +195,7 @@ class DbSync:
         self.table_cache = table_cache
 
         # logger to be used across the class's methods
-        self.logger = get_logger('target_snowflake')
+        self.logger = get_logger('export_snowflake')
 
         # Validate connection configuration
         config_errors = validate_config(connection_config)
@@ -274,9 +275,7 @@ class DbSync:
                 self.grantees = config_schema_mapping[stream_schema_name].get('target_schema_select_permissions',
                                                                               self.grantees)
 
-            self.data_flattening_max_level = self.connection_config.get('data_flattening_max_level', 0)
-            self.flatten_schema = flattening.flatten_schema(stream_schema_message['schema'],
-                                                            max_level=self.data_flattening_max_level)
+            self.flatten_schema = flattening.flatten_schema(stream_schema_message['schema'])
 
         # Use external stage
         if connection_config.get('s3_bucket', None):
@@ -408,9 +407,8 @@ class DbSync:
 
         return ','.join(key_props)
 
-    def put_to_stage(self, file, stream, count, temp_dir=None):
+    def put_to_stage(self, file, stream, temp_dir=None):
         """Upload file to snowflake stage"""
-        self.logger.info('Uploading %d rows to stage', count)
         return self.upload_client.upload_file(file, stream, temp_dir)
 
     def delete_from_stage(self, stream, s3_key):
@@ -456,10 +454,9 @@ class DbSync:
         table_name = self.table_name(stream, False, without_schema=True)
         return f"{self.schema_name}.%{table_name}"
 
-    def load_file(self, s3_key, count, size_bytes):
+    def load_file(self):
         """Load a supported file type from snowflake stage into target table"""
         stream = self.stream_schema_message['stream']
-        self.logger.info("Loading %d rows into '%s'", count, self.table_name(stream, False))
 
         # Get list if columns with types
         columns_with_trans = [
@@ -478,7 +475,6 @@ class DbSync:
         if len(self.stream_schema_message['key_properties']) > 0:
             try:
                 inserts, updates = self._load_file_merge(
-                    s3_key=s3_key,
                     stream=stream,
                     columns_with_trans=columns_with_trans
                 )
@@ -490,11 +486,11 @@ class DbSync:
                 raise ex
 
         # Insert only with COPY command if no primary key
+        # we will never execute COPY command as KEY columns is always mandatory
         else:
             try:
                 inserts, updates = (
                     self._load_file_copy(
-                        s3_key=s3_key,
                         stream=stream,
                         columns_with_trans=columns_with_trans
                     ),
@@ -510,10 +506,65 @@ class DbSync:
         self.logger.info(
             'Loading into %s: %s',
             self.table_name(stream, False),
-            json.dumps({'inserts': inserts, 'updates': updates, 'size_bytes': size_bytes})
+            json.dumps({'inserts': inserts, 'updates': updates})
         )
 
-    def _load_file_merge(self, s3_key, stream, columns_with_trans) -> Tuple[int, int]:
+    def use_default_schema(self):
+        return f"USE SCHEMA {self.schema_name}"
+
+    def get_export_task_id(self):
+        prefix = self.connection_config.get('prefix')
+        # result is the export task id from the prefix
+        # id is generated from base64url, so might contain '-' characters, replace it with '_'
+        result = os.path.basename(prefix).replace('-', '_')
+        
+        return result
+    
+    def get_temporary_stage_name(self):
+        """Generate snowflake stage name"""
+        export_task_id = self.get_export_task_id()
+        
+        return f"export_{export_task_id}_stage"
+    
+    def generate_temporary_external_s3_stage(self, bucket, prefix, s3_credentials):
+        temp_stage_name = self.get_temporary_stage_name()
+        destination_url = f"s3://{bucket}/{prefix}"
+        
+        with self.open_connection() as connection:
+            with connection.cursor(snowflake.connector.DictCursor) as cur:
+                stage_generation_query = self.file_format.formatter.create_stage_generation_sql(
+                    stage_name=temp_stage_name,
+                    url=destination_url,
+                    aws_key_id=s3_credentials['accessKeyID'],
+                    aws_secret_key=s3_credentials['secretKey'],
+                    aws_session_token=s3_credentials.get('sessionToken', None),
+                    file_format_name=self.connection_config['file_format']
+                )
+                self.logger.debug('Creating temporary external stage: %s', stage_generation_query)
+                self.logger.debug(self.schema_name)
+                
+                # need to point to the correct schema before creating the stage
+                default_schema_query = self.use_default_schema()
+                cur.execute(default_schema_query)
+                
+                cur.execute(stage_generation_query)
+        return
+
+    def remove_external_s3_stage(self):
+        temp_stage_name = self.get_temporary_stage_name()
+        with self.open_connection() as connection:
+            with connection.cursor(snowflake.connector.DictCursor) as cur:
+                stage_removal_query = f"DROP STAGE IF EXISTS {temp_stage_name}"
+                
+                # need to point to the correct schema before creating the stage
+                default_schema_query = self.use_default_schema()
+                cur.execute(default_schema_query)
+
+                self.logger.debug('Removing temporary external stage: %s', stage_removal_query)
+                cur.execute(stage_removal_query)
+        return
+    
+    def _load_file_merge(self, stream, columns_with_trans) -> Tuple[int, int]:
         # MERGE does insert and update
         inserts = 0
         updates = 0
@@ -521,12 +572,16 @@ class DbSync:
             with connection.cursor(snowflake.connector.DictCursor) as cur:
                 merge_sql = self.file_format.formatter.create_merge_sql(
                     table_name=self.table_name(stream, False),
-                    stage_name=self.get_stage_name(stream),
-                    s3_key=s3_key,
+                    stage_name=self.get_temporary_stage_name(),
                     file_format_name=self.connection_config['file_format'],
                     columns=columns_with_trans,
                     pk_merge_condition=self.primary_key_merge_condition()
                 )
+                
+                # need to point to the correct schema before creating the stage
+                default_schema_query = self.use_default_schema()
+                cur.execute(default_schema_query)
+                
                 self.logger.debug('Running query: %s', merge_sql)
                 cur.execute(merge_sql)
                 # Get number of inserted and updated records
@@ -536,7 +591,7 @@ class DbSync:
                     updates = results[0].get('number of rows updated', 0)
         return inserts, updates
 
-    def _load_file_copy(self, s3_key, stream, columns_with_trans) -> int:
+    def _load_file_copy(self, stream, columns_with_trans) -> int:
         # COPY does insert only
         inserts = 0
         with self.open_connection() as connection:
@@ -544,7 +599,6 @@ class DbSync:
                 copy_sql = self.file_format.formatter.create_copy_sql(
                     table_name=self.table_name(stream, False),
                     stage_name=self.get_stage_name(stream),
-                    s3_key=s3_key,
                     file_format_name=self.connection_config['file_format'],
                     columns=columns_with_trans
                 )
@@ -831,6 +885,7 @@ class DbSync:
             try:
                 query = self.create_table_query()
                 self.logger.info('Table %s does not exist. Creating...', table_name_with_schema)
+                self.logger.debug('Create table with query %s', query)
                 self.query(query)
             except snowflake.connector.errors.ProgrammingError as e:
                 # No privilege to create table. However, this error could be raised if user doesn't have select or ownership privilege on the existing table

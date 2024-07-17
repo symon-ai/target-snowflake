@@ -5,7 +5,7 @@ import pandas
 from typing import Dict, List
 from tempfile import mkstemp
 
-from target_snowflake import flattening
+from export_snowflake import flattening
 
 
 def create_copy_sql(table_name: str,

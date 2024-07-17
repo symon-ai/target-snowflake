@@ -3,8 +3,8 @@ from enum import Enum, unique
 from types import ModuleType
 from typing import Callable
 
-import target_snowflake.file_formats
-from target_snowflake.exceptions import InvalidFileFormatException, SymonException
+import export_snowflake.file_formats
+from export_snowflake.exceptions import InvalidFileFormatException, SymonException
 
 # Supported types for file formats.
 @unique
@@ -49,9 +49,9 @@ class FileFormat:
         formatter = None
 
         if file_format_type == FileFormatTypes.CSV:
-            formatter = target_snowflake.file_formats.csv
+            formatter = export_snowflake.file_formats.csv
         elif file_format_type == FileFormatTypes.PARQUET:
-            formatter = target_snowflake.file_formats.parquet
+            formatter = export_snowflake.file_formats.parquet
         else:
             raise InvalidFileFormatException(f"Not supported file format: '{file_format_type}")
 

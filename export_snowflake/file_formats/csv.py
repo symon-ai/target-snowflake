@@ -6,25 +6,24 @@ import os
 from typing import Callable, Dict, List
 from tempfile import mkstemp
 
-from target_snowflake import flattening
+from export_snowflake import flattening
 
+COMPRESSED_CSV_PATTERNS = '.*csv.gz'
 
 def create_copy_sql(table_name: str,
                     stage_name: str,
-                    s3_key: str,
                     file_format_name: str,
                     columns: List):
     """Generate a CSV compatible snowflake COPY INTO command"""
     p_columns = ', '.join([c['name'] for c in columns])
 
     return f"COPY INTO {table_name} ({p_columns}) " \
-           f"FROM '@{stage_name}/{s3_key}' " \
+           f"FROM '@{stage_name}' " \
            f"FILE_FORMAT = (format_name='{file_format_name}')"
 
 
 def create_merge_sql(table_name: str,
                      stage_name: str,
-                     s3_key: str,
                      file_format_name: str,
                      columns: List,
                      pk_merge_condition: str) -> str:
@@ -36,13 +35,29 @@ def create_merge_sql(table_name: str,
 
     return f"MERGE INTO {table_name} t USING (" \
            f"SELECT {p_source_columns} " \
-           f"FROM '@{stage_name}/{s3_key}' " \
-           f"(FILE_FORMAT => '{file_format_name}')) s " \
+           f"FROM @{stage_name} " \
+           f"(FILE_FORMAT => '{file_format_name}', PATTERN => '{COMPRESSED_CSV_PATTERNS}')) s " \
            f"ON {pk_merge_condition} " \
            f"WHEN MATCHED THEN UPDATE SET {p_update} " \
            "WHEN NOT MATCHED THEN " \
            f"INSERT ({p_insert_cols}) " \
            f"VALUES ({p_insert_values})"
+
+def create_stage_generation_sql(stage_name: str,
+                                url: str,
+                                aws_key_id: str,
+                                aws_secret_key: str,
+                                aws_session_token: str,
+                                file_format_name: str) -> str:
+    
+    """Generate a CSV compatible snowflake CREATE STAGE command"""
+    return f"CREATE OR REPLACE STAGE {stage_name} " \
+           f"URL = '{url}' " \
+           f"CREDENTIALS=(" \
+           f"AWS_KEY_ID='{aws_key_id}' " \
+           f"AWS_SECRET_KEY='{aws_secret_key}' " \
+           f"AWS_TOKEN='{aws_session_token}') " \
+           f"FILE_FORMAT = (format_name='{file_format_name}')"
 
 
 def record_to_csv_line(record: dict,

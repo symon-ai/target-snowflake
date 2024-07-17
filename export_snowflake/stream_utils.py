@@ -7,10 +7,10 @@ from dateutil.parser import ParserError
 from decimal import Decimal
 from singer import get_logger
 
-from target_snowflake.exceptions import UnexpectedValueTypeException
-from target_snowflake.exceptions import UnexpectedMessageTypeException
+from export_snowflake.exceptions import UnexpectedValueTypeException
+from export_snowflake.exceptions import UnexpectedMessageTypeException
 
-LOGGER = get_logger('target_snowflake')
+LOGGER = get_logger('export_snowflake')
 
 # max timestamp/datetime supported in SF, used to reset all invalid dates that are beyond this value
 MAX_TIMESTAMP = '9999-12-31 23:59:59.999999'

@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "target-snowflake"
-version="2.2.0.6"
-description = "Singer.io target for loading data to Snowflake - PipelineWise compatible"
+name = "export-snowflake"
+version="2.3.0.0"
+description = "Export for loading data from S3 to Snowflake"
 authors = ["Wise"]
 classifiers = [
           'License :: OSI Approved :: Apache Software License',
@@ -30,7 +30,7 @@ tesults = "*"
 pytest-tesults = "*"
 
 [tool.poetry.scripts]
-target-snowflake = "target_snowflake:main"
+export-snowflake = "export_snowflake:main"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

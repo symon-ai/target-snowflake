@@ -5,7 +5,7 @@ import json
 import re
 
 
-def flatten_key(k, parent_key, sep):
+def flatten_key(k, sep):
     """
 
     Params:
@@ -15,7 +15,7 @@ def flatten_key(k, parent_key, sep):
 
     Returns:
     """
-    full_key = parent_key + [k]
+    full_key = [k]
     inflected_key = full_key.copy()
     reducer_index = 0
     while len(sep.join(inflected_key)) >= 255 and reducer_index < len(inflected_key):
@@ -26,46 +26,23 @@ def flatten_key(k, parent_key, sep):
 
     return sep.join(inflected_key)
 
-
 # pylint: disable=invalid-name
-def flatten_schema(d, parent_key=None, sep='__', level=0, max_level=0):
-    """
-
-    Params:
-        k:
-        parent_key:
-        sep:
-
-    Returns:
-    """
-    if parent_key is None:
-        parent_key = []
-
+def flatten_schema(d, sep='__'):
     items = []
-    if 'properties' not in d:
-        return {}
-
-    for k, v in d['properties'].items():
-        new_key = flatten_key(k, parent_key, sep)
-        if 'type' in v.keys():
-            if 'object' in v['type'] and 'properties' in v and level < max_level:
-                items.extend(flatten_schema(v, parent_key + [k], sep=sep, level=level + 1, max_level=max_level).items())
-            else:
-                items.append((new_key, v))
-        elif len(v.values()) > 0:
-            value_type = list(v.values())[0][0]['type']
-            if value_type in ['string', 'array', 'object']:
-                list(v.values())[0][0]['type'] = ['null', value_type]
-                items.append((new_key, list(v.values())[0][0]))
-
+    
+    for field in d['properties']:
+        new_key = flatten_key(field['name'], sep)
+        
+        item_type = {"type": field['type']}
+        items.append((new_key, item_type))
+    
     key_func = lambda item: item[0]
     sorted_items = sorted(items, key=key_func)
     for k, g in itertools.groupby(sorted_items, key=key_func):
         if len(list(g)) > 1:
             raise ValueError(f'Duplicate column name produced in schema: {k}')
 
-    return dict(sorted_items)
-
+    return dict(items)
 
 def _should_json_dump_value(key, value, schema=None):
     """

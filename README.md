@@ -1,18 +1,7 @@
-# pipelinewise-target-snowflake
+# export-snowflake
 
-[![PyPI version](https://badge.fury.io/py/pipelinewise-target-snowflake.svg)](https://badge.fury.io/py/pipelinewise-target-snowflake)
-[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pipelinewise-target-snowflake.svg)](https://pypi.org/project/pipelinewise-target-snowflake/)
-[![License: Apache2](https://img.shields.io/badge/License-Apache2-yellow.svg)](https://opensource.org/licenses/Apache-2.0)
+An exporter that reads compressed csv files from s3 and writes data to snowflake stage.
 
-[Singer](https://www.singer.io/) target that loads data into Snowflake following the [Singer spec](https://github.com/singer-io/getting-started/blob/master/docs/SPEC.md).
-
-This is a [PipelineWise](https://transferwise.github.io/pipelinewise) compatible target connector.
-
-## How to use it
-
-The recommended method of running this target is to use it from [PipelineWise](https://transferwise.github.io/pipelinewise). When running it from PipelineWise you don't need to configure this tap with JSON files and most of things are automated. Please check the related documentation at [Target Snowflake](https://transferwise.github.io/pipelinewise/connectors/targets/snowflake.html)
-
-If you want to run this [Singer Target](https://singer.io) independently please read further.
 
 ## Install
 
@@ -23,18 +12,13 @@ installation instructions for [Mac](http://docs.python-guide.org/en/latest/start
 It's recommended to use a virtualenv:
 
 ```bash
-  python3 -m venv venv
-  pip install pipelinewise-target-snowflake
+  python3 -m venv ~/.virtualenvs/export-snowflake
+  source ~/.virtualenvs/export-snowflake/bin/activate
+  pip install --upgrade pip
+  pip install -e .
+  deactivate
 ```
 
-or
-
-```bash
-  python3 -m venv venv
-  . venv/bin/activate
-  pip install --upgrade pip
-  pip install .
-```
 
 ## Flow diagram
 
@@ -42,17 +26,13 @@ or
 
 ### To run
 
-Like any other target that's following the singer specificiation:
+`export-snowflake --config [config.json]`
 
-`some-singer-tap | target-snowflake --config [config.json]`
-
-It's reading incoming messages from STDIN and using the properites in `config.json` to upload data into Snowflake.
-
-**Note**: To avoid version conflicts run `tap` and `targets` in separate virtual environments.
+Not following singer.io formats, export-snowflake just processes the csv file directly
 
 ### Pre-requirements
 
-You need to create a few objects in snowflake in one schema before start using this target.
+You need to create a few objects in snowflake in one schema before start using this export repo.
 
 1. Create a named file format. This will be used by the MERGE/COPY commands to parse the files correctly from S3. You can use CSV or Parquet file formats.
 
@@ -114,14 +94,14 @@ GRANT USAGE ON STAGE {database}.{schema}.{stage_name} TO ROLE ppw_target_snowfla
 Notes:
 * To use external stages you need to define `s3_bucket` and `stage` values in `config.json` as well.
 * The `encryption` option is optional and used for client side encryption.
-* If you want client side encryption enabled you need to define the same master key in the target `config.json`.
+* If you want client side encryption enabled you need to define the same master key in the export `config.json`.
 * Instead of `credentials` you can also use [storage_integration](https://docs.snowflake.com/en/sql-reference/sql/create-storage-integration.html)
 
 Further details below in the Configuration settings section.
 
 ### Configuration settings
 
-Running the the target connector requires a `config.json` file. Example with the minimal settings:
+Running the the export connector requires a `config.json` file. Example with the minimal settings:
 
    ```json
    {
@@ -216,17 +196,6 @@ Full list of options in `config.json`:
 4. To run integration tests:
 ```
   pytest tests/integration
-```
-
-### To run pylint:
-
-1. Install python dependencies and run python linter
-```
-  python3 -m venv venv
-  . venv/bin/activate
-  pip install --upgrade pip
-  pip install .[test]
-  pylint target_snowflake
 ```
 
 ## License
