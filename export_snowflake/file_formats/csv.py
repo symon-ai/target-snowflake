@@ -51,7 +51,7 @@ def create_stage_generation_sql(stage_name: str,
                                 file_format_name: str) -> str:
     
     """Generate a CSV compatible snowflake CREATE STAGE command"""
-    return f"CREATE OR REPLACE STAGE {stage_name} " \
+    return f"CREATE OR REPLACE TEMPORARY STAGE {stage_name} " \
            f"URL = '{url}' " \
            f"CREDENTIALS=(" \
            f"AWS_KEY_ID='{aws_key_id}' " \

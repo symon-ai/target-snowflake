@@ -94,11 +94,11 @@ def direct_transfer_data_from_s3_to_snowflake(config, o, file_format_type):
         # generate a new stage with stream in Snowflake
         # the stage will be an external stage that points to the s3
         # the following merge query will be processed directly against the external stage
-        db_sync.generate_temporary_external_s3_stage(bucket, prefix, config['s3_credentials'])
+        stage_generation_query = db_sync.generate_temporary_external_s3_stage(bucket, prefix, config['s3_credentials'])
         
         # after creating the external stage, we could load the file directly from the s3 to Snowflake
         # need to specify the patterns in the s3 bucket to filter out the target csv.gz files
-        db_sync.load_file()
+        db_sync.load_file(stage_generation_query)
         
         transfer_end_time = time.time()
         stream = config["stream"]

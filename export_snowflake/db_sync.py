@@ -454,7 +454,7 @@ class DbSync:
         table_name = self.table_name(stream, False, without_schema=True)
         return f"{self.schema_name}.%{table_name}"
 
-    def load_file(self):
+    def load_file(self, stage_generation_query):
         """Load a supported file type from snowflake stage into target table"""
         stream = self.stream_schema_message['stream']
 
@@ -476,7 +476,8 @@ class DbSync:
             try:
                 inserts, updates = self._load_file_merge(
                     stream=stream,
-                    columns_with_trans=columns_with_trans
+                    columns_with_trans=columns_with_trans,
+                    stage_generation_query=stage_generation_query
                 )
             except Exception as ex:
                 self.logger.error(
@@ -530,25 +531,19 @@ class DbSync:
         temp_stage_name = self.get_temporary_stage_name()
         destination_url = f"s3://{bucket}/{prefix}"
         
-        with self.open_connection() as connection:
-            with connection.cursor(snowflake.connector.DictCursor) as cur:
-                stage_generation_query = self.file_format.formatter.create_stage_generation_sql(
-                    stage_name=temp_stage_name,
-                    url=destination_url,
-                    aws_key_id=s3_credentials['accessKeyID'],
-                    aws_secret_key=s3_credentials['secretKey'],
-                    aws_session_token=s3_credentials.get('sessionToken', None),
-                    file_format_name=self.connection_config['file_format']
-                )
-                self.logger.debug('Creating temporary external stage: %s', stage_generation_query)
-                self.logger.debug(self.schema_name)
+
+        stage_generation_query = self.file_format.formatter.create_stage_generation_sql(
+            stage_name=temp_stage_name,
+            url=destination_url,
+            aws_key_id=s3_credentials['accessKeyID'],
+            aws_secret_key=s3_credentials['secretKey'],
+            aws_session_token=s3_credentials.get('sessionToken', None),
+            file_format_name=self.connection_config['file_format']
+        )
                 
-                # need to point to the correct schema before creating the stage
-                default_schema_query = self.use_default_schema()
-                cur.execute(default_schema_query)
-                
-                cur.execute(stage_generation_query)
-        return
+        # temporary stage will only exist during the connection cursor session
+        # only execute the generation query later during the data loading session
+        return stage_generation_query
 
     def remove_external_s3_stage(self):
         temp_stage_name = self.get_temporary_stage_name()
@@ -564,7 +559,7 @@ class DbSync:
                 cur.execute(stage_removal_query)
         return
     
-    def _load_file_merge(self, stream, columns_with_trans) -> Tuple[int, int]:
+    def _load_file_merge(self, stream, columns_with_trans, stage_generation_query) -> Tuple[int, int]:
         # MERGE does insert and update
         inserts = 0
         updates = 0
@@ -581,6 +576,10 @@ class DbSync:
                 # need to point to the correct schema before creating the stage
                 default_schema_query = self.use_default_schema()
                 cur.execute(default_schema_query)
+                
+                # execute the temporary stage generation query
+                self.logger.debug('Temporary external stage generation query: %s', stage_generation_query)
+                cur.execute(stage_generation_query)
                 
                 self.logger.debug('Running query: %s', merge_sql)
                 cur.execute(merge_sql)
