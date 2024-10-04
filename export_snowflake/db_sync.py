@@ -19,38 +19,24 @@ from export_snowflake.upload_clients.snowflake_upload_client import SnowflakeUpl
 def validate_config(config):
     """Validate configuration"""
     errors = []
-    s3_required_config_keys = [
-        'account',
-        'dbname',
-        'user',
-        'password',
-        'warehouse',
-        's3_bucket',
-        'stage',
-        'file_format'
-    ]
 
-    snowflake_required_config_keys = [
+    required_config_keys = [
         'account',
         'dbname',
-        'user',
-        'password',
+        'auth_method',
         'warehouse',
         'file_format'
     ]
 
     required_config_keys = []
 
-    # Use external stages if both s3_bucket and stage defined
-    if config.get('s3_bucket', None) and config.get('stage', None):
-        required_config_keys = s3_required_config_keys
-    # Use table stage if none s3_bucket and stage defined
-    elif not config.get('s3_bucket', None) and not config.get('stage', None):
-        required_config_keys = snowflake_required_config_keys
+    auth_method = config.get('auth_method', None)
+    if auth_method == 'basic':
+        required_config_keys.extend(['user', 'password'])
+    elif auth_method == 'oauth':
+        required_config_keys.append('access_token')
     else:
-        errors.append("Only one of 's3_bucket' or 'stage' keys defined in config. "
-                      "Use both of them if you want to use an external stage when loading data into snowflake "
-                      "or don't use any of them if you want ot use table stages.")
+        raise Exception('auth_method must be either "basic" or "oauth".')
 
     # Check if mandatory keys exist
     for k in required_config_keys:
@@ -291,15 +277,13 @@ class DbSync:
             stream = self.stream_schema_message['stream']
         
         try:
-            return snowflake.connector.connect(
-                user=self.connection_config['user'],
-                password=self.connection_config['password'],
-                account=self.connection_config['account'],
-                database=self.connection_config['dbname'],
-                warehouse=self.connection_config['warehouse'],
-                role=self.connection_config.get('role', None),
-                autocommit=True,
-                session_parameters={
+            config = {
+                'account':self.connection_config['account'],
+                'database':self.connection_config['dbname'],
+                'warehouse':self.connection_config['warehouse'],
+                'role':self.connection_config.get('role', None),
+                'autocommit':True,
+                'session_parameters':{
                     # Quoted identifiers should be case sensitive
                     'QUOTED_IDENTIFIERS_IGNORE_CASE': 'FALSE',
                     'QUERY_TAG': create_query_tag(self.connection_config.get('query_tag'),
@@ -307,7 +291,15 @@ class DbSync:
                                                 schema=self.schema_name,
                                                 table=self.table_name(stream, False, True))
                 }
-            )
+            }
+            if self.connection_config.get('auth_method') == 'basic':
+                config['user'] = self.connection_config['user']
+                config['password'] = self.connection_config['password']
+            else:
+                config['authenticator'] = 'oauth'
+                config['token'] = self.connection_config['access_token']
+
+            return snowflake.connector.connect(**config)
         except snowflake.connector.errors.DatabaseError as e:
             if 'Incorrect username or password was specified' in str(e):
                 raise SymonException("The username or password provided is incorrect. Please check and try again.", "snowflake.clientError")
