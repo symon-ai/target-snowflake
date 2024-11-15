@@ -519,17 +519,21 @@ class DbSync:
         
         return f"export_{export_task_id}_stage"
     
-    def generate_temporary_external_s3_stage(self, bucket, prefix, s3_credentials):
+    def generate_temporary_external_s3_stage(self, bucket, prefix, s3_credentials, storage_integration):
         temp_stage_name = self.get_temporary_stage_name()
         destination_url = f"s3://{bucket}/{prefix}"
+        if s3_credentials is not None:
+            credentials_line = f"CREDENTIALS=(AWS_KEY_ID='{s3_credentials['accessKeyID']}' AWS_SECRET_KEY='{s3_credentials['secretKey']}' AWS_TOKEN='{s3_credentials.get('sessionToken', None)}')"
+        elif storage_integration is not None:
+            credentials_line = f"STORAGE_INTEGRATION={storage_integration}"
+        else:
+            raise Exception("Either 's3_credentials' or 'storage_integration' must be provided in the config.")
         
 
         stage_generation_query = self.file_format.formatter.create_stage_generation_sql(
             stage_name=temp_stage_name,
             url=destination_url,
-            aws_key_id=s3_credentials['accessKeyID'],
-            aws_secret_key=s3_credentials['secretKey'],
-            aws_session_token=s3_credentials.get('sessionToken', None),
+            credentials_line=credentials_line,
             file_format_name=self.connection_config['file_format']
         )
                 

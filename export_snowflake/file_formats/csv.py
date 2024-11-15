@@ -45,18 +45,13 @@ def create_merge_sql(table_name: str,
 
 def create_stage_generation_sql(stage_name: str,
                                 url: str,
-                                aws_key_id: str,
-                                aws_secret_key: str,
-                                aws_session_token: str,
+                                credentials_line: str,
                                 file_format_name: str) -> str:
     
     """Generate a CSV compatible snowflake CREATE STAGE command"""
     return f"CREATE OR REPLACE TEMPORARY STAGE {stage_name} " \
            f"URL = '{url}' " \
-           f"CREDENTIALS=(" \
-           f"AWS_KEY_ID='{aws_key_id}' " \
-           f"AWS_SECRET_KEY='{aws_secret_key}' " \
-           f"AWS_TOKEN='{aws_session_token}') " \
+           f"{credentials_line} " \
            f"FILE_FORMAT = (format_name='{file_format_name}')"
 
 

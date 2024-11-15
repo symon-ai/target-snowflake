@@ -9,6 +9,7 @@ import os
 import sys
 import boto3
 import time
+import snowflake.connector
 
 from singer import get_logger
 from datetime import datetime, timedelta
@@ -81,6 +82,7 @@ def direct_transfer_data_from_s3_to_snowflake(config, o, file_format_type):
     }
     
     db_sync = DbSync(config, o, None, file_format_type)
+    remove_temp_external_stage = False
 
     try:
         transfer_start_time = time.time()
@@ -94,7 +96,7 @@ def direct_transfer_data_from_s3_to_snowflake(config, o, file_format_type):
         # generate a new stage with stream in Snowflake
         # the stage will be an external stage that points to the s3
         # the following merge query will be processed directly against the external stage
-        stage_generation_query = db_sync.generate_temporary_external_s3_stage(bucket, prefix, config['s3_credentials'])
+        stage_generation_query = db_sync.generate_temporary_external_s3_stage(bucket, prefix, config.get('s3_credentials', None), config.get('storage_integration', None))
         
         # after creating the external stage, we could load the file directly from the s3 to Snowflake
         # need to specify the patterns in the s3 bucket to filter out the target csv.gz files
@@ -103,6 +105,15 @@ def direct_transfer_data_from_s3_to_snowflake(config, o, file_format_type):
         transfer_end_time = time.time()
         stream = config["stream"]
         LOGGER.info(f"Elapsed time usage for {stream} is {transfer_end_time - transfer_start_time}")
+    except snowflake.connector.errors.ProgrammingError as e:
+        err_msg = str(e)
+        storage_integration = config.get('storage_integration', '').upper()
+        if f"Location" in err_msg and "not allowed by integration" in err_msg:
+            s3_allowed_location = f"s3://{bucket}/{prefix[:prefix.rfind('/') + 1]}"
+            raise SymonException(f'Snowflake storage integration "{storage_integration}" must include "{s3_allowed_location}" in S3_ALLOWED_LOCATIONS.', "snowflake.clientError")
+        if f"Insufficient privileges to operate on integration" in err_msg:
+            raise SymonException(f'USAGE privilege is missing on storage integration "{storage_integration}".', "snowflake.clientError")
+        raise
     except Exception as e:
         LOGGER.error(f"Error occurred in direct_transfer_data_from_s3_to_snowflake: {e}")
         raise e
@@ -111,7 +122,11 @@ def direct_transfer_data_from_s3_to_snowflake(config, o, file_format_type):
         os.remove(LOCAL_SCHEMA_FILE_PATH)
         
         # Snowflake will only remove the external stage object, the s3 bucket and files will remain
-        db_sync.remove_external_s3_stage()
+        try:
+            db_sync.remove_external_s3_stage()
+        except Exception as e:
+            LOGGER.error(f"Error occurred while removing external stage: {e}")
+            pass
 
 def main():
     """Main function"""
