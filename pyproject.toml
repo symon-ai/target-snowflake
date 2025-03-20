@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "target-snowflake"
-version="2.2.0.6"
+version="2.2.1.6"
 description = "Singer.io target for loading data to Snowflake - PipelineWise compatible"
 authors = ["Wise"]
 classifiers = [
@@ -12,9 +12,9 @@ classifiers = [
       ]
 
 [tool.poetry.dependencies]
-python = "^3.7.1"
+python = ">=3.8, <3.11.0"
 pipelinewise-singer-python = "1.*"
-snowflake-connector-python = "2.7.*"
+snowflake-connector-python = "3.13.1"
 pandas = "1.3.5"
 inflection = "0.5.1"
 joblib = "1.2.0"
