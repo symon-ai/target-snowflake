@@ -6,12 +6,12 @@ venv:
 
 pylint:
 	. ./venv/bin/activate ;\
-	pylint --rcfile pylintrc target_snowflake/
+	pylint --rcfile pylintrc export_snowflake/
 
 unit_test:
 	. ./venv/bin/activate ;\
-	pytest tests/unit -vv --cov target_snowflake --cov-fail-under=67
+	pytest tests/unit -vv --cov export_snowflake --cov-fail-under=67
 
 integration_test:
 	. ./venv/bin/activate ;\
-	pytest tests/integration/ -vvx --cov target_snowflake --cov-fail-under=86
+	pytest tests/integration/ -vvx --cov export_snowflake --cov-fail-under=86
