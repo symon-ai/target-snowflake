@@ -1,9 +1,9 @@
 import unittest
 from unittest.mock import patch
 
-from target_snowflake.exceptions import InvalidFileFormatException, FileFormatNotFoundException
-from target_snowflake.file_format import FileFormat, FileFormatTypes
-from target_snowflake.file_formats import csv, parquet
+from export_snowflake.exceptions import InvalidFileFormatException, FileFormatNotFoundException
+from export_snowflake.file_format import FileFormat, FileFormatTypes
+from export_snowflake.file_formats import csv, parquet
 
 
 class TestFileFormat(unittest.TestCase):
@@ -18,7 +18,7 @@ class TestFileFormat(unittest.TestCase):
             FileFormat._get_formatter('UNKNOWN')
 
 
-    @patch('target_snowflake.db_sync.DbSync.query')
+    @patch('export_snowflake.db_sync.DbSync.query')
     def test_detect_file_format_type(self, query_patch):
         minimal_config = {
             'account': 'foo',
@@ -26,7 +26,7 @@ class TestFileFormat(unittest.TestCase):
             'user': 'foo',
             'password': 'foo',
             'warehouse': 'foo',
-            'default_target_schema': 'foo',
+            'default_export_schema': 'foo',
             'file_format': 'foo',
             's3_bucket': 'foo',
             'stage': 'foo.foo'

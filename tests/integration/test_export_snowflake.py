@@ -6,12 +6,12 @@ import unittest
 import os
 import botocore
 import boto3
-import target_snowflake
+import export_snowflake
 
-from target_snowflake import RecordValidationException
-from target_snowflake.exceptions import PrimaryKeyNotFoundException
-from target_snowflake.db_sync import DbSync
-from target_snowflake.upload_clients.s3_upload_client import S3UploadClient
+from export_snowflake import RecordValidationException
+from export_snowflake.exceptions import PrimaryKeyNotFoundException
+from export_snowflake.db_sync import DbSync
+from export_snowflake.upload_clients.s3_upload_client import S3UploadClient
 
 from unittest import mock
 from pyarrow.lib import ArrowTypeError
@@ -40,13 +40,13 @@ class TestIntegration(unittest.TestCase):
         self.config = test_utils.get_test_config()
         self.snowflake = DbSync(self.config)
 
-        # Drop target schema
-        if self.config['default_target_schema']:
-            self.snowflake.query("DROP SCHEMA IF EXISTS {}".format(self.config['default_target_schema']))
+        # Drop export schema
+        if self.config['default_export_schema']:
+            self.snowflake.query("DROP SCHEMA IF EXISTS {}".format(self.config['default_export_schema']))
 
         if self.config['schema_mapping']:
             for _, val in self.config['schema_mapping'].items():
-                self.snowflake.query('drop schema if exists {}'.format(val['target_schema']))
+                self.snowflake.query('drop schema if exists {}'.format(val['export_schema']))
 
         # Set up S3 client
         aws_access_key_id = self.config.get('aws_access_key_id')
@@ -64,7 +64,7 @@ class TestIntegration(unittest.TestCase):
 
     def persist_lines(self, lines):
         """Loads singer messages into snowflake without table caching option"""
-        target_snowflake.persist_lines(self.config, lines)
+        export_snowflake.persist_lines(self.config, lines)
 
     def persist_lines_with_cache(self, lines):
         """Enables table caching option and loads singer messages into snowflake.
@@ -75,10 +75,10 @@ class TestIntegration(unittest.TestCase):
         in parallel.
 
         Selecting from a real table instead of INFORMATION_SCHEMA and keeping it
-        in memory while the target-snowflake is running results better load performance.
+        in memory while the export-snowflake is running results better load performance.
         """
-        table_cache, file_format_type = target_snowflake.get_snowflake_statics(self.config)
-        target_snowflake.persist_lines(self.config, lines, table_cache, file_format_type)
+        table_cache, file_format_type = export_snowflake.get_snowflake_statics(self.config)
+        export_snowflake.persist_lines(self.config, lines, table_cache, file_format_type)
 
     def remove_metadata_columns_from_rows(self, rows):
         """Removes metadata columns from a list of rows"""
@@ -116,20 +116,20 @@ class TestIntegration(unittest.TestCase):
         without duplicating assertions
         """
         snowflake = DbSync(self.config)
-        default_target_schema = self.config.get('default_target_schema', '')
+        default_export_schema = self.config.get('default_export_schema', '')
         schema_mapping = self.config.get('schema_mapping', {})
 
-        # Identify target schema name
-        target_schema = None
-        if default_target_schema is not None and default_target_schema.strip():
-            target_schema = default_target_schema
+        # Identify export schema name
+        export_schema = None
+        if default_export_schema is not None and default_export_schema.strip():
+            export_schema = default_export_schema
         elif schema_mapping:
-            target_schema = "tap_mysql_test"
+            export_schema = "tap_mysql_test"
 
         # Get loaded rows from tables
-        table_one = snowflake.query("SELECT * FROM {}.test_table_one ORDER BY c_pk".format(target_schema))
-        table_two = snowflake.query("SELECT * FROM {}.test_table_two ORDER BY c_pk".format(target_schema))
-        table_three = snowflake.query("SELECT * FROM {}.test_table_three ORDER BY c_pk".format(target_schema))
+        table_one = snowflake.query("SELECT * FROM {}.test_table_one ORDER BY c_pk".format(export_schema))
+        table_two = snowflake.query("SELECT * FROM {}.test_table_two ORDER BY c_pk".format(export_schema))
+        table_three = snowflake.query("SELECT * FROM {}.test_table_three ORDER BY c_pk".format(export_schema))
 
         # ----------------------------------------------------------------------
         # Check rows in table_one
@@ -192,11 +192,11 @@ class TestIntegration(unittest.TestCase):
     def assert_logical_streams_are_in_snowflake(self, should_metadata_columns_exist=False):
         # Get loaded rows from tables
         snowflake = DbSync(self.config)
-        target_schema = self.config.get('default_target_schema', '')
-        table_one = snowflake.query("SELECT * FROM {}.logical1_table1 ORDER BY CID".format(target_schema))
-        table_two = snowflake.query("SELECT * FROM {}.logical1_table2 ORDER BY CID".format(target_schema))
-        table_three = snowflake.query("SELECT * FROM {}.logical2_table1 ORDER BY CID".format(target_schema))
-        table_four = snowflake.query("SELECT CID, CTIMENTZ, CTIMETZ FROM {}.logical1_edgydata WHERE CID IN(1,2,3,4,5,6,8,9) ORDER BY CID".format(target_schema))
+        export_schema = self.config.get('default_export_schema', '')
+        table_one = snowflake.query("SELECT * FROM {}.logical1_table1 ORDER BY CID".format(export_schema))
+        table_two = snowflake.query("SELECT * FROM {}.logical1_table2 ORDER BY CID".format(export_schema))
+        table_three = snowflake.query("SELECT * FROM {}.logical2_table1 ORDER BY CID".format(export_schema))
+        table_four = snowflake.query("SELECT CID, CTIMENTZ, CTIMETZ FROM {}.logical1_edgydata WHERE CID IN(1,2,3,4,5,6,8,9) ORDER BY CID".format(export_schema))
 
         # ----------------------------------------------------------------------
         # Check rows in table_one
@@ -259,11 +259,11 @@ class TestIntegration(unittest.TestCase):
     def assert_logical_streams_are_in_snowflake_and_are_empty(self):
         # Get loaded rows from tables
         snowflake = DbSync(self.config)
-        target_schema = self.config.get('default_target_schema', '')
-        table_one = snowflake.query("SELECT * FROM {}.logical1_table1 ORDER BY CID".format(target_schema))
-        table_two = snowflake.query("SELECT * FROM {}.logical1_table2 ORDER BY CID".format(target_schema))
-        table_three = snowflake.query("SELECT * FROM {}.logical2_table1 ORDER BY CID".format(target_schema))
-        table_four = snowflake.query("SELECT CID, CTIMENTZ, CTIMETZ FROM {}.logical1_edgydata WHERE CID IN(1,2,3,4,5,6,8,9) ORDER BY CID".format(target_schema))
+        export_schema = self.config.get('default_export_schema', '')
+        table_one = snowflake.query("SELECT * FROM {}.logical1_table1 ORDER BY CID".format(export_schema))
+        table_two = snowflake.query("SELECT * FROM {}.logical1_table2 ORDER BY CID".format(export_schema))
+        table_three = snowflake.query("SELECT * FROM {}.logical2_table1 ORDER BY CID".format(export_schema))
+        table_four = snowflake.query("SELECT CID, CTIMENTZ, CTIMETZ FROM {}.logical1_edgydata WHERE CID IN(1,2,3,4,5,6,8,9) ORDER BY CID".format(export_schema))
 
         self.assertEqual(table_one, [])
         self.assertEqual(table_two, [])
@@ -273,8 +273,8 @@ class TestIntegration(unittest.TestCase):
     def assert_binary_data_are_in_snowflake(self, table_name, should_metadata_columns_exist=False):
         # Get loaded rows from tables
         snowflake = DbSync(self.config)
-        target_schema = self.config.get('default_target_schema', '')
-        table_one = snowflake.query("SELECT * FROM {}.{} ORDER BY ID".format(target_schema, table_name))
+        export_schema = self.config.get('default_export_schema', '')
+        table_one = snowflake.query("SELECT * FROM {}.{} ORDER BY ID".format(export_schema, table_name))
 
         # ----------------------------------------------------------------------
         # Check rows in table_one
@@ -466,8 +466,8 @@ class TestIntegration(unittest.TestCase):
 
         # Get loaded rows from tables
         snowflake = DbSync(self.config)
-        target_schema = self.config.get('default_target_schema', '')
-        table_unicode = snowflake.query("SELECT * FROM {}.test_table_unicode ORDER BY C_INT".format(target_schema))
+        export_schema = self.config.get('default_export_schema', '')
+        table_unicode = snowflake.query("SELECT * FROM {}.test_table_unicode ORDER BY C_INT".format(export_schema))
 
         self.assertEqual(
             table_unicode,
@@ -490,9 +490,9 @@ class TestIntegration(unittest.TestCase):
 
         # Get loaded rows from tables
         snowflake = DbSync(self.config)
-        target_schema = self.config.get('default_target_schema', '')
+        export_schema = self.config.get('default_export_schema', '')
         table_non_db_friendly_columns = snowflake.query(
-            "SELECT * FROM {}.test_table_non_db_friendly_columns ORDER BY c_pk".format(target_schema))
+            "SELECT * FROM {}.test_table_non_db_friendly_columns ORDER BY c_pk".format(export_schema))
 
         self.assertEqual(
             table_non_db_friendly_columns,
@@ -513,7 +513,7 @@ class TestIntegration(unittest.TestCase):
 
         # Get loaded rows from tables - Transform JSON to string at query time
         snowflake = DbSync(self.config)
-        target_schema = self.config.get('default_target_schema', '')
+        export_schema = self.config.get('default_export_schema', '')
         unflattened_table = snowflake.query("""
             SELECT c_pk
                   ,TO_CHAR(c_array) c_array
@@ -521,7 +521,7 @@ class TestIntegration(unittest.TestCase):
                   ,TO_CHAR(c_object) c_object_with_props
                   ,TO_CHAR(c_nested_object) c_nested_object
               FROM {}.test_table_nested_schema
-             ORDER BY c_pk""".format(target_schema))
+             ORDER BY c_pk""".format(export_schema))
 
         # Should be valid nested JSON strings
         self.assertEqual(
@@ -546,9 +546,9 @@ class TestIntegration(unittest.TestCase):
 
         # Get loaded rows from tables
         snowflake = DbSync(self.config)
-        target_schema = self.config.get('default_target_schema', '')
+        export_schema = self.config.get('default_export_schema', '')
         flattened_table = snowflake.query(
-            "SELECT * FROM {}.test_table_nested_schema ORDER BY c_pk".format(target_schema))
+            "SELECT * FROM {}.test_table_nested_schema ORDER BY c_pk".format(export_schema))
 
         # Should be flattened columns
         self.assertEqual(
@@ -577,10 +577,10 @@ class TestIntegration(unittest.TestCase):
 
         # Get loaded rows from tables
         snowflake = DbSync(self.config)
-        target_schema = self.config.get('default_target_schema', '')
-        table_one = snowflake.query("SELECT * FROM {}.test_table_one ORDER BY c_pk".format(target_schema))
-        table_two = snowflake.query("SELECT * FROM {}.test_table_two ORDER BY c_pk".format(target_schema))
-        table_three = snowflake.query("SELECT * FROM {}.test_table_three ORDER BY c_pk".format(target_schema))
+        export_schema = self.config.get('default_export_schema', '')
+        table_one = snowflake.query("SELECT * FROM {}.test_table_one ORDER BY c_pk".format(export_schema))
+        table_two = snowflake.query("SELECT * FROM {}.test_table_two ORDER BY c_pk".format(export_schema))
+        table_three = snowflake.query("SELECT * FROM {}.test_table_three ORDER BY c_pk".format(export_schema))
 
         # Get the previous column name from information schema in test_table_two
         previous_column_name = snowflake.query("""
@@ -592,7 +592,7 @@ class TestIntegration(unittest.TestCase):
                AND ordinal_position = 1
             """.format(
             self.config.get('dbname', '').upper(),
-            target_schema.upper()))[0]["COLUMN_NAME"]
+            export_schema.upper()))[0]["COLUMN_NAME"]
 
         # Table one should have no changes
         self.assertEqual(
@@ -638,10 +638,10 @@ class TestIntegration(unittest.TestCase):
 
         # Get loaded rows from tables
         snowflake = DbSync(self.config)
-        target_schema = self.config.get('default_target_schema', '')
-        table_one = snowflake.query("SELECT * FROM {}.test_table_one ORDER BY c_pk".format(target_schema))
-        table_two = snowflake.query("SELECT * FROM {}.test_table_two ORDER BY c_pk".format(target_schema))
-        table_three = snowflake.query("SELECT * FROM {}.test_table_three ORDER BY c_pk".format(target_schema))
+        export_schema = self.config.get('default_export_schema', '')
+        table_one = snowflake.query("SELECT * FROM {}.test_table_one ORDER BY c_pk".format(export_schema))
+        table_two = snowflake.query("SELECT * FROM {}.test_table_two ORDER BY c_pk".format(export_schema))
+        table_three = snowflake.query("SELECT * FROM {}.test_table_three ORDER BY c_pk".format(export_schema))
 
         # Get the previous column name from information schema in test_table_two
         previous_column_name = snowflake.query("""
@@ -653,7 +653,7 @@ class TestIntegration(unittest.TestCase):
                AND ordinal_position = 1
             """.format(
             self.config.get('dbname', '').upper(),
-            target_schema.upper()))[0]["COLUMN_NAME"]
+            export_schema.upper()))[0]["COLUMN_NAME"]
 
         # Table one should have no changes
         self.assertEqual(
@@ -719,7 +719,7 @@ class TestIntegration(unittest.TestCase):
 
         self.assert_logical_streams_are_in_snowflake_and_are_empty()
 
-    @mock.patch('target_snowflake.emit_state')
+    @mock.patch('export_snowflake.emit_state')
     def test_flush_streams_with_no_intermediate_flushes(self, mock_emit_state):
         """Test emitting states when no intermediate flush required"""
         mock_emit_state.get.return_value = None
@@ -747,7 +747,7 @@ class TestIntegration(unittest.TestCase):
         # Every table should be loaded correctly
         self.assert_logical_streams_are_in_snowflake(True)
 
-    @mock.patch('target_snowflake.emit_state')
+    @mock.patch('export_snowflake.emit_state')
     def test_flush_streams_with_intermediate_flushes(self, mock_emit_state):
         """Test emitting states when intermediate flushes required"""
         mock_emit_state.get.return_value = None
@@ -851,7 +851,7 @@ class TestIntegration(unittest.TestCase):
         # Every table should be loaded correctly
         self.assert_logical_streams_are_in_snowflake(True)
 
-    @mock.patch('target_snowflake.emit_state')
+    @mock.patch('export_snowflake.emit_state')
     def test_flush_streams_with_intermediate_flushes_on_all_streams(self, mock_emit_state):
         """Test emitting states when intermediate flushes required and flush_all_streams is enabled"""
         mock_emit_state.get.return_value = None
@@ -956,7 +956,7 @@ class TestIntegration(unittest.TestCase):
         # Every table should be loaded correctly
         self.assert_logical_streams_are_in_snowflake(True)
 
-    @mock.patch('target_snowflake.emit_state')
+    @mock.patch('export_snowflake.emit_state')
     def test_flush_streams_based_on_batch_wait_limit(self, mock_emit_state):
         """Tests logical streams from pg with inserts, updates and deletes"""
         tap_lines = test_utils.get_test_tap_lines('messages-pg-logical-streams.json')
@@ -982,11 +982,11 @@ class TestIntegration(unittest.TestCase):
 
         # Loading invalid records when record validation disabled should fail at load time
         self.config['validate_records'] = False
-        if self.config['file_format'] == os.environ.get('TARGET_SNOWFLAKE_FILE_FORMAT_CSV'):
+        if self.config['file_format'] == os.environ.get('export_SNOWFLAKE_FILE_FORMAT_CSV'):
             with self.assertRaises(ProgrammingError):
                 self.persist_lines_with_cache(tap_lines)
 
-        if self.config['file_format'] == os.environ.get('TARGET_SNOWFLAKE_FILE_FORMAT_PARQUET'):
+        if self.config['file_format'] == os.environ.get('export_SNOWFLAKE_FILE_FORMAT_PARQUET'):
             with self.assertRaises(ArrowTypeError):
                 self.persist_lines_with_cache(tap_lines)
 
@@ -1029,8 +1029,8 @@ class TestIntegration(unittest.TestCase):
             orig_config = self.config.copy()
 
             # Move aws access key and secret from config into environment variables
-            os.environ['AWS_ACCESS_KEY_ID'] = os.environ.get('TARGET_SNOWFLAKE_AWS_ACCESS_KEY')
-            os.environ['AWS_SECRET_ACCESS_KEY'] = os.environ.get('TARGET_SNOWFLAKE_AWS_SECRET_ACCESS_KEY')
+            os.environ['AWS_ACCESS_KEY_ID'] = os.environ.get('export_SNOWFLAKE_AWS_ACCESS_KEY')
+            os.environ['AWS_SECRET_ACCESS_KEY'] = os.environ.get('export_SNOWFLAKE_AWS_SECRET_ACCESS_KEY')
             del self.config['aws_access_key_id']
             del self.config['aws_secret_access_key']
 
@@ -1112,7 +1112,7 @@ class TestIntegration(unittest.TestCase):
         self.assertEqual(len(sample_rows), 50000)
 
         # Should raise exception when max_records exceeded
-        with self.assertRaises(target_snowflake.db_sync.TooManyRecordsException):
+        with self.assertRaises(export_snowflake.db_sync.TooManyRecordsException):
             snowflake.query("SELECT seq4() FROM TABLE(GENERATOR(ROWCOUNT => 50000))", max_records=10000)
 
     def test_loading_tables_with_no_compression(self):
@@ -1162,22 +1162,22 @@ class TestIntegration(unittest.TestCase):
                                  GROUP BY query_tag
                                  ORDER BY 1""")
 
-        target_db = self.config['dbname']
-        target_schema = self.config['default_target_schema']
+        export_db = self.config['dbname']
+        export_schema = self.config['default_export_schema']
         self.assertEqual(result, [{
-            'QUERY_TAG': f'PPW test tap run at {current_time}. Loading into {target_db}..',
+            'QUERY_TAG': f'PPW test tap run at {current_time}. Loading into {export_db}..',
             'QUERIES': 4
         },
             {
-                'QUERY_TAG': f'PPW test tap run at {current_time}. Loading into {target_db}.{target_schema}.TEST_TABLE_ONE',
+                'QUERY_TAG': f'PPW test tap run at {current_time}. Loading into {export_db}.{export_schema}.TEST_TABLE_ONE',
                 'QUERIES': 10
             },
             {
-                'QUERY_TAG': f'PPW test tap run at {current_time}. Loading into {target_db}.{target_schema}.TEST_TABLE_THREE',
+                'QUERY_TAG': f'PPW test tap run at {current_time}. Loading into {export_db}.{export_schema}.TEST_TABLE_THREE',
                 'QUERIES': 9
             },
             {
-                'QUERY_TAG': f'PPW test tap run at {current_time}. Loading into {target_db}.{target_schema}.TEST_TABLE_TWO',
+                'QUERY_TAG': f'PPW test tap run at {current_time}. Loading into {export_db}.{export_schema}.TEST_TABLE_TWO',
                 'QUERIES': 9
             }
         ])
@@ -1201,13 +1201,13 @@ class TestIntegration(unittest.TestCase):
         self.config['stage'] = None
 
         # Table stages should work with CSV files
-        self.config['file_format'] = os.environ.get('TARGET_SNOWFLAKE_FILE_FORMAT_CSV')
+        self.config['file_format'] = os.environ.get('export_SNOWFLAKE_FILE_FORMAT_CSV')
         self.persist_lines_with_cache(tap_lines)
 
         self.assert_three_streams_are_into_snowflake()
 
         # Table stages should not work with Parquet files
-        self.config['file_format'] = os.environ.get('TARGET_SNOWFLAKE_FILE_FORMAT_PARQUET')
+        self.config['file_format'] = os.environ.get('export_SNOWFLAKE_FILE_FORMAT_PARQUET')
         with self.assertRaises(SystemExit):
             self.persist_lines_with_cache(tap_lines)
 
@@ -1227,7 +1227,7 @@ class TestIntegration(unittest.TestCase):
         """Test if custom role can be used"""
         tap_lines = test_utils.get_test_tap_lines('messages-with-unexpected-types.json')
 
-        with self.assertRaises(target_snowflake.UnexpectedValueTypeException):
+        with self.assertRaises(export_snowflake.UnexpectedValueTypeException):
             self.persist_lines_with_cache(tap_lines)
 
     def test_parquet(self):
@@ -1235,7 +1235,7 @@ class TestIntegration(unittest.TestCase):
         tap_lines = test_utils.get_test_tap_lines('messages-with-three-streams.json')
 
         # Set parquet file format
-        self.config['file_format'] = os.environ.get('TARGET_SNOWFLAKE_FILE_FORMAT_PARQUET')
+        self.config['file_format'] = os.environ.get('export_SNOWFLAKE_FILE_FORMAT_PARQUET')
         self.persist_lines_with_cache(tap_lines)
 
         # Check if data loaded correctly and metadata columns exist
@@ -1272,7 +1272,7 @@ class TestIntegration(unittest.TestCase):
             'tap': 'test_tap_id',
             'schema': 'tap_mysql_test',
             'table': 'test_simple_table',
-            'archived-by': 'pipelinewise_target_snowflake',
+            'archived-by': 'pipelinewise_export_snowflake',
             'incremental-key': 'id',
             'incremental-key-min': '1',
             'incremental-key-max': '5'
@@ -1301,9 +1301,9 @@ class TestIntegration(unittest.TestCase):
 
         self.persist_lines_with_cache(tap_lines)
 
-        table_desc = self.snowflake.query(f'desc table {self.config["default_target_schema"]}.test_simple_table;')
+        table_desc = self.snowflake.query(f'desc table {self.config["default_export_schema"]}.test_simple_table;')
         rows_count = self.snowflake.query(f'select count(1) as _count from'
-                                          f' {self.config["default_target_schema"]}.test_simple_table;')
+                                          f' {self.config["default_export_schema"]}.test_simple_table;')
 
         self.assertEqual(6, rows_count[0]['_COUNT'])
 
@@ -1340,9 +1340,9 @@ class TestIntegration(unittest.TestCase):
 
         self.persist_lines_with_cache(tap_lines)
 
-        table_desc = self.snowflake.query(f'desc table {self.config["default_target_schema"]}.test_simple_table;')
+        table_desc = self.snowflake.query(f'desc table {self.config["default_export_schema"]}.test_simple_table;')
         rows_count = self.snowflake.query(f'select count(1) as _count from'
-                                          f' {self.config["default_target_schema"]}.test_simple_table;')
+                                          f' {self.config["default_export_schema"]}.test_simple_table;')
 
         self.assertEqual(6, rows_count[0]['_COUNT'])
 
@@ -1371,6 +1371,6 @@ class TestIntegration(unittest.TestCase):
         self.persist_lines_with_cache(tap_lines)
 
         rows_count = self.snowflake.query(f'select count(1) as _count from'
-                                          f' {self.config["default_target_schema"]}.test_simple_table;')
+                                          f' {self.config["default_export_schema"]}.test_simple_table;')
 
         self.assertEqual(8, rows_count[0]['_COUNT'])

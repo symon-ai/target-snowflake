@@ -3,7 +3,7 @@ import os
 import gzip
 import tempfile
 
-import target_snowflake.file_formats.csv as csv
+import export_snowflake.file_formats.csv as csv
 
 
 def _mock_record_to_csv_line(record, schema, data_flattening_max_level=0):

@@ -8,22 +8,22 @@ from contextlib import redirect_stdout
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
-import target_snowflake
+import export_snowflake
 
 
 def _mock_record_to_csv_line(record):
     return record
 
 
-class TestTargetSnowflake(unittest.TestCase):
+class TestexportSnowflake(unittest.TestCase):
 
     def setUp(self):
         self.config = {}
         self.maxDiff = None
 
     @patch('sys.getsizeof')
-    @patch('target_snowflake.flush_streams')
-    @patch('target_snowflake.DbSync')
+    @patch('export_snowflake.flush_streams')
+    @patch('export_snowflake.DbSync')
     def test_persist_lines_with_40_records_and_batch_size_of_20MB_expect_flushing_once(self, dbSync_mock,
                                                                                      flush_streams_mock,
                                                                                      sys_getsizeof_mock):
@@ -40,13 +40,13 @@ class TestTargetSnowflake(unittest.TestCase):
         flush_streams_mock.return_value = '{"currently_syncing": null}'
         sys_getsizeof_mock.return_value = 1024 * 1024
 
-        target_snowflake.persist_lines(self.config, lines)
+        export_snowflake.persist_lines(self.config, lines)
 
         self.assertEqual(1, flush_streams_mock.call_count)
 
     @patch('sys.getsizeof')
-    @patch('target_snowflake.flush_streams')
-    @patch('target_snowflake.DbSync')
+    @patch('export_snowflake.flush_streams')
+    @patch('export_snowflake.DbSync')
     def test_persist_lines_with_same_schema_expect_flushing_once(self, dbSync_mock,
                                                                  flush_streams_mock,
                                                                  sys_getsizeof_mock):
@@ -62,14 +62,14 @@ class TestTargetSnowflake(unittest.TestCase):
         flush_streams_mock.return_value = '{"currently_syncing": null}'
         sys_getsizeof_mock.return_value = 1024 * 1024
 
-        target_snowflake.persist_lines(self.config, lines)
+        export_snowflake.persist_lines(self.config, lines)
 
         self.assertEqual(1, flush_streams_mock.call_count)
 
     @patch('sys.getsizeof')
-    @patch('target_snowflake.datetime')
-    @patch('target_snowflake.flush_streams')
-    @patch('target_snowflake.DbSync')
+    @patch('export_snowflake.datetime')
+    @patch('export_snowflake.flush_streams')
+    @patch('export_snowflake.DbSync')
     def test_persist_40_records_with_batch_wait_limit(self, dbSync_mock, flush_streams_mock, dateTime_mock, sys_getsizeof_mock):
 
         start_time = datetime(2021, 4, 6, 0, 0, 0)
@@ -94,13 +94,13 @@ class TestTargetSnowflake(unittest.TestCase):
         flush_streams_mock.return_value = '{"currently_syncing": null}'
         sys_getsizeof_mock.return_value = 1024 * 1024
 
-        target_snowflake.persist_lines(self.config, lines)
+        export_snowflake.persist_lines(self.config, lines)
 
         # Expecting flush after every records + 1 at the end
         self.assertEqual(flush_streams_mock.call_count, 41)
 
-    @patch('target_snowflake.DbSync')
-    @patch('target_snowflake.os.remove')
+    @patch('export_snowflake.DbSync')
+    @patch('export_snowflake.os.remove')
     def test_archive_load_files_incremental_replication(self, os_remove_mock, dbSync_mock):
         self.config['tap_id'] = 'test_tap_id'
         self.config['archive_load_files'] = True
@@ -114,7 +114,7 @@ class TestTargetSnowflake(unittest.TestCase):
         instance.sync_table.return_value = None
         instance.put_to_stage.return_value = 'some-s3-folder/some-name_date_batch_hash.csg.gz'
 
-        target_snowflake.persist_lines(self.config, lines)
+        export_snowflake.persist_lines(self.config, lines)
 
         copy_to_archive_args = instance.copy_to_archive.call_args[0]
         self.assertEqual(copy_to_archive_args[0], 'some-s3-folder/some-name_date_batch_hash.csg.gz')
@@ -123,14 +123,14 @@ class TestTargetSnowflake(unittest.TestCase):
             'tap': 'test_tap_id',
             'schema': 'tap_mysql_test',
             'table': 'test_simple_table',
-            'archived-by': 'pipelinewise_target_snowflake',
+            'archived-by': 'pipelinewise_export_snowflake',
             'incremental-key': 'id',
             'incremental-key-min': '1',
             'incremental-key-max': '5'
         })
 
-    @patch('target_snowflake.DbSync')
-    @patch('target_snowflake.os.remove')
+    @patch('export_snowflake.DbSync')
+    @patch('export_snowflake.os.remove')
     def test_archive_load_files_log_based_replication(self, os_remove_mock, dbSync_mock):
         self.config['tap_id'] = 'test_tap_id'
         self.config['archive_load_files'] = True
@@ -143,7 +143,7 @@ class TestTargetSnowflake(unittest.TestCase):
         instance.sync_table.return_value = None
         instance.put_to_stage.return_value = 'some-s3-folder/some-name_date_batch_hash.csg.gz'
 
-        target_snowflake.persist_lines(self.config, lines)
+        export_snowflake.persist_lines(self.config, lines)
 
         copy_to_archive_args = instance.copy_to_archive.call_args[0]
         self.assertEqual(copy_to_archive_args[0], 'some-s3-folder/some-name_date_batch_hash.csg.gz')
@@ -152,15 +152,15 @@ class TestTargetSnowflake(unittest.TestCase):
             'tap': 'test_tap_id',
             'schema': 'logical1',
             'table': 'logical1_table2',
-            'archived-by': 'pipelinewise_target_snowflake'
+            'archived-by': 'pipelinewise_export_snowflake'
         })
 
     @patch('sys.getsizeof')
-    @patch('target_snowflake.flush_streams')
-    @patch('target_snowflake.DbSync')
+    @patch('export_snowflake.flush_streams')
+    @patch('export_snowflake.DbSync')
     def test_persist_lines_with_only_state_messages(self, dbSync_mock, flush_streams_mock, sys_getsizeof_mock):
         """
-        Given only state messages, target should emit the last one
+        Given only state messages, export should emit the last one
         """
 
         self.config['batch_size'] = 5
@@ -176,7 +176,7 @@ class TestTargetSnowflake(unittest.TestCase):
         # catch stdout
         buf = io.StringIO()
         with redirect_stdout(buf):
-            target_snowflake.persist_lines(self.config, lines)
+            export_snowflake.persist_lines(self.config, lines)
 
         flush_streams_mock.assert_not_called()
 

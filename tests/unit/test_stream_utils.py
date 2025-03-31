@@ -2,9 +2,9 @@ import unittest
 
 from decimal import Decimal
 
-import target_snowflake.stream_utils as stream_utils
-from target_snowflake.exceptions import UnexpectedValueTypeException
-from target_snowflake.exceptions import UnexpectedMessageTypeException
+import export_snowflake.stream_utils as stream_utils
+from export_snowflake.exceptions import UnexpectedValueTypeException
+from export_snowflake.exceptions import UnexpectedMessageTypeException
 
 
 class TestSchemaUtils(unittest.TestCase):
@@ -17,19 +17,19 @@ class TestSchemaUtils(unittest.TestCase):
         # Empty config
         self.assertEqual(stream_utils.get_schema_names_from_config({}), [])
 
-        # Default target schema
+        # Default export schema
         self.assertEqual(stream_utils.get_schema_names_from_config({
-            'default_target_schema': 'test_schema_for_default'
+            'default_export_schema': 'test_schema_for_default'
         }), ['test_schema_for_default'])
 
         # Schema mapping should support multiple schemas
         self.assertEqual(stream_utils.get_schema_names_from_config({
             'schema_mapping': {
                 'stream_1': {
-                    'target_schema': 'test_schema_for_stream_1'
+                    'export_schema': 'test_schema_for_stream_1'
                 },
                 'stream_2': {
-                    'target_schema': 'test_schema_for_stream_2'
+                    'export_schema': 'test_schema_for_stream_2'
                 }
             }
         }), ['test_schema_for_stream_1',
@@ -37,13 +37,13 @@ class TestSchemaUtils(unittest.TestCase):
 
         # Default and schema mapping should be combined
         self.assertEqual(stream_utils.get_schema_names_from_config({
-            'default_target_schema': 'test_schema_for_default',
+            'default_export_schema': 'test_schema_for_default',
             'schema_mapping': {
                 'stream_1': {
-                    'target_schema': 'test_schema_for_stream_1'
+                    'export_schema': 'test_schema_for_stream_1'
                 },
                 'stream_2': {
-                    'target_schema': 'test_schema_for_stream_2'
+                    'export_schema': 'test_schema_for_stream_2'
                 }
             }
         }), ['test_schema_for_default',

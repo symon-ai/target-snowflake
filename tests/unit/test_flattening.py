@@ -1,6 +1,6 @@
 import unittest
 
-import target_snowflake.flattening as flattening
+import export_snowflake.flattening as flattening
 
 
 class TestFlattening(unittest.TestCase):

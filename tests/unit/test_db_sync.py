@@ -3,8 +3,8 @@ import unittest
 
 from unittest.mock import patch, call
 
-from target_snowflake import db_sync
-from target_snowflake.exceptions import PrimaryKeyNotFoundException
+from export_snowflake import db_sync
+from export_snowflake.exceptions import PrimaryKeyNotFoundException
 
 
 class TestDBSync(unittest.TestCase):
@@ -43,7 +43,7 @@ class TestDBSync(unittest.TestCase):
             'user': "dummy-value",
             'password': "dummy-value",
             'warehouse': "dummy-value",
-            'default_target_schema': "dummy-value",
+            'default_export_schema': "dummy-value",
             'file_format': "dummy-value"
         }
 
@@ -58,15 +58,15 @@ class TestDBSync(unittest.TestCase):
 
         # Configuration without schema references - (nr_of_errors >= 0)
         config_with_no_schema = minimal_config.copy()
-        config_with_no_schema.pop('default_target_schema')
+        config_with_no_schema.pop('default_export_schema')
         self.assertGreater(len(validator(config_with_no_schema)), 0)
 
         # Configuration with schema mapping - (nr_of_errors >= 0)
         config_with_schema_mapping = minimal_config.copy()
-        config_with_schema_mapping.pop('default_target_schema')
+        config_with_schema_mapping.pop('default_export_schema')
         config_with_schema_mapping['schema_mapping'] = {
             "dummy_stream": {
-                "target_schema": "dummy_schema"
+                "export_schema": "dummy_schema"
             }
         }
         self.assertEqual(len(validator(config_with_schema_mapping)), 0)
@@ -199,7 +199,7 @@ class TestDBSync(unittest.TestCase):
             'table': 'test_table'
         })
 
-    @patch('target_snowflake.db_sync.DbSync.query')
+    @patch('export_snowflake.db_sync.DbSync.query')
     def test_parallelism(self, query_patch):
         query_patch.return_value = [{'type': 'CSV'}]
 
@@ -209,7 +209,7 @@ class TestDBSync(unittest.TestCase):
             'user': "dummy-value",
             'password': "dummy-value",
             'warehouse': "dummy-value",
-            'default_target_schema': "dummy-value",
+            'default_export_schema': "dummy-value",
             'file_format': "dummy-value"
         }
 
@@ -230,8 +230,8 @@ class TestDBSync(unittest.TestCase):
         self.assertEqual(db_sync.DbSync({**minimal_config,
                                          **table_stage_with_parallel}).connection_config['parallelism'], 5)
 
-    @patch('target_snowflake.upload_clients.s3_upload_client.S3UploadClient.copy_object')
-    @patch('target_snowflake.db_sync.DbSync.query')
+    @patch('export_snowflake.upload_clients.s3_upload_client.S3UploadClient.copy_object')
+    @patch('export_snowflake.db_sync.DbSync.query')
     def test_copy_to_archive(self, query_patch, copy_object_patch):
         query_patch.return_value = [{'type': 'CSV'}]
         minimal_config = {
@@ -240,7 +240,7 @@ class TestDBSync(unittest.TestCase):
             'user': "dummy-value",
             'password': "dummy-value",
             'warehouse': "dummy-value",
-            'default_target_schema': "dummy-value",
+            'default_export_schema': "dummy-value",
             'file_format': "dummy-value",
             's3_bucket': 'dummy-bucket',
             'stage': 'dummy_schema.dummy_stage'
@@ -273,7 +273,7 @@ class TestDBSync(unittest.TestCase):
         self.assertEqual(db_sync.safe_column_name("column-name"), '"COLUMN-NAME"')
         self.assertEqual(db_sync.safe_column_name("column name"), '"COLUMN NAME"')
 
-    @patch('target_snowflake.db_sync.DbSync.query')
+    @patch('export_snowflake.db_sync.DbSync.query')
     def test_record_primary_key_string(self, query_patch):
         query_patch.return_value = [{'type': 'CSV'}]
         minimal_config = {
@@ -282,7 +282,7 @@ class TestDBSync(unittest.TestCase):
             'user': "dummy-value",
             'password': "dummy-value",
             'warehouse': "dummy-value",
-            'default_target_schema': "dummy-value",
+            'default_export_schema': "dummy-value",
             'file_format': "dummy-value"
         }
 
@@ -330,10 +330,10 @@ class TestDBSync(unittest.TestCase):
         dbsync = db_sync.DbSync(minimal_config, stream_schema_message)
         self.assertEqual(dbsync.record_primary_key_string({'id': 1, 'c_bool': False, 'c_str': 'xyz'}), '1,False')
 
-    @patch('target_snowflake.db_sync.DbSync.query')
-    @patch('target_snowflake.db_sync.DbSync._load_file_merge')
+    @patch('export_snowflake.db_sync.DbSync.query')
+    @patch('export_snowflake.db_sync.DbSync._load_file_merge')
     def test_merge_failure_message(self, load_file_merge_patch, query_patch):
-        LOGGER_NAME = "target_snowflake"
+        LOGGER_NAME = "export_snowflake"
         query_patch.return_value = [{'type': 'CSV'}]
         minimal_config = {
             'account': "dummy_account",
@@ -341,7 +341,7 @@ class TestDBSync(unittest.TestCase):
             'user': "dummy_user",
             'password': "dummy_password",
             'warehouse': "dummy_warehouse",
-            'default_target_schema': "dummy_default_target_schema",
+            'default_export_schema': "dummy_default_export_schema",
             'file_format': "dummy_file_format",
         }
 
@@ -361,17 +361,17 @@ class TestDBSync(unittest.TestCase):
         load_file_merge_patch.side_effect = Exception()
         expected_msg = (
             f'ERROR:{LOGGER_NAME}:Error while executing MERGE query '
-            f'for table "{minimal_config["default_target_schema"]}."{stream_schema_message["stream"].upper()}"" '
+            f'for table "{minimal_config["default_export_schema"]}."{stream_schema_message["stream"].upper()}"" '
             f'in stream "{stream_schema_message["stream"]}"'
         )
         with self.assertRaises(Exception), self.assertLogs(logger=LOGGER_NAME, level="ERROR") as captured_logs:
             dbsync.load_file(s3_key="dummy-key", count=256, size_bytes=256)
         self.assertIn(expected_msg, captured_logs.output)
 
-    @patch('target_snowflake.db_sync.DbSync.query')
-    @patch('target_snowflake.db_sync.DbSync._load_file_copy')
+    @patch('export_snowflake.db_sync.DbSync.query')
+    @patch('export_snowflake.db_sync.DbSync._load_file_copy')
     def test_copy_failure_message(self, load_file_copy_patch, query_patch):
-        LOGGER_NAME = "target_snowflake"
+        LOGGER_NAME = "export_snowflake"
         query_patch.return_value = [{'type': 'CSV'}]
         minimal_config = {
             'account': "dummy_account",
@@ -379,7 +379,7 @@ class TestDBSync(unittest.TestCase):
             'user': "dummy_user",
             'password': "dummy_password",
             'warehouse': "dummy_warehouse",
-            'default_target_schema': "dummy_default_target_schema",
+            'default_export_schema': "dummy_default_export_schema",
             'file_format': "dummy_file_format",
         }
 
@@ -399,14 +399,14 @@ class TestDBSync(unittest.TestCase):
         load_file_copy_patch.side_effect = Exception()
         expected_msg = (
             f'ERROR:{LOGGER_NAME}:Error while executing COPY query '
-            f'for table "{minimal_config["default_target_schema"]}."{stream_schema_message["stream"].upper()}"" '
+            f'for table "{minimal_config["default_export_schema"]}."{stream_schema_message["stream"].upper()}"" '
             f'in stream "{stream_schema_message["stream"]}"'
         )
         with self.assertRaises(Exception), self.assertLogs(logger=LOGGER_NAME, level="ERROR") as captured_logs:
             dbsync.load_file(s3_key="dummy-key", count=256, size_bytes=256)
         self.assertIn(expected_msg, captured_logs.output)
 
-    @patch('target_snowflake.db_sync.DbSync.query')
+    @patch('export_snowflake.db_sync.DbSync.query')
     def test_sync_table_with_no_changes_to_pk(self, query_patch):
         minimal_config = {
             'account': "dummy-account",
@@ -414,7 +414,7 @@ class TestDBSync(unittest.TestCase):
             'user': "dummy-user",
             'password': "dummy-passwd",
             'warehouse': "dummy-wh",
-            'default_target_schema': "dummy-schema",
+            'default_export_schema': "dummy-schema",
             'file_format': "dummy-file-format"
         }
 
@@ -454,7 +454,7 @@ class TestDBSync(unittest.TestCase):
             call(['alter table dummy-schema."TABLE1" alter column "ID" drop not null;'])
         ])
 
-    @patch('target_snowflake.db_sync.DbSync.query')
+    @patch('export_snowflake.db_sync.DbSync.query')
     def test_sync_table_with_new_pk_in_stream(self, query_patch):
         minimal_config = {
             'account': "dummy-account",
@@ -462,7 +462,7 @@ class TestDBSync(unittest.TestCase):
             'user': "dummy-user",
             'password': "dummy-passwd",
             'warehouse': "dummy-wh",
-            'default_target_schema': "dummy-schema",
+            'default_export_schema': "dummy-schema",
             'file_format': "dummy-file-format"
         }
 
@@ -525,7 +525,7 @@ class TestDBSync(unittest.TestCase):
                              ]
                              )
 
-    @patch('target_snowflake.db_sync.DbSync.query')
+    @patch('export_snowflake.db_sync.DbSync.query')
     def test_sync_table_with_stream_that_changes_to_have_no_pk(self, query_patch):
         minimal_config = {
             'account': "dummy-account",
@@ -533,7 +533,7 @@ class TestDBSync(unittest.TestCase):
             'user': "dummy-user",
             'password': "dummy-passwd",
             'warehouse': "dummy-wh",
-            'default_target_schema': "dummy-schema",
+            'default_export_schema': "dummy-schema",
             'file_format': "dummy-file-format"
         }
 
@@ -574,7 +574,7 @@ class TestDBSync(unittest.TestCase):
                   'alter table dummy-schema."TABLE1" alter column "ID" drop not null;'])
         ])
 
-    @patch('target_snowflake.db_sync.DbSync.query')
+    @patch('export_snowflake.db_sync.DbSync.query')
     def test_sync_table_with_stream_that_has_no_pk_but_get_a_new_one(self, query_patch):
         minimal_config = {
             'account': "dummy-account",
@@ -582,7 +582,7 @@ class TestDBSync(unittest.TestCase):
             'user': "dummy-user",
             'password': "dummy-passwd",
             'warehouse': "dummy-wh",
-            'default_target_schema': "dummy-schema",
+            'default_export_schema': "dummy-schema",
             'file_format': "dummy-file-format"
         }
 

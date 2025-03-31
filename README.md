@@ -53,14 +53,14 @@ CREATE FILE FORMAT {database}.{schema}.{file_format_name} TYPE = 'PARQUET';
 2. Create a Role with all the required permissions:
 
 ```
-CREATE OR REPLACE ROLE ppw_target_snowflake;
-GRANT USAGE ON DATABASE {database} TO ROLE ppw_target_snowflake;
-GRANT CREATE SCHEMA ON DATABASE {database} TO ROLE ppw_target_snowflake;
+CREATE OR REPLACE ROLE ppw_EXPORT_snowflake;
+GRANT USAGE ON DATABASE {database} TO ROLE ppw_EXPORT_snowflake;
+GRANT CREATE SCHEMA ON DATABASE {database} TO ROLE ppw_EXPORT_snowflake;
 
-GRANT USAGE ON SCHEMA {database}.{schema} TO role ppw_target_snowflake;
-GRANT USAGE ON STAGE {database}.{schema}.{stage_name} TO ROLE ppw_target_snowflake;
-GRANT USAGE ON FILE FORMAT {database}.{schema}.{file_format_name} TO ROLE ppw_target_snowflake;
-GRANT USAGE ON WAREHOUSE {warehouse} TO ROLE ppw_target_snowflake;
+GRANT USAGE ON SCHEMA {database}.{schema} TO role ppw_EXPORT_snowflake;
+GRANT USAGE ON STAGE {database}.{schema}.{stage_name} TO ROLE ppw_EXPORT_snowflake;
+GRANT USAGE ON FILE FORMAT {database}.{schema}.{file_format_name} TO ROLE ppw_EXPORT_snowflake;
+GRANT USAGE ON WAREHOUSE {warehouse} TO ROLE ppw_EXPORT_snowflake;
 ```
 
 Replace `database`, `schema`, `warehouse`, `stage_name` and `file_format_name`
@@ -70,11 +70,11 @@ between `{` and `}` characters to the actual values from point 1 and 2.
 ```
 CREATE OR REPLACE USER {user}
 PASSWORD = '{password}'
-DEFAULT_ROLE = ppw_target_snowflake
+DEFAULT_ROLE = ppw_EXPORT_snowflake
 DEFAULT_WAREHOUSE = '{warehouse}'
 MUST_CHANGE_PASSWORD = FALSE;
 
-GRANT ROLE ppw_target_snowflake TO USER {user};
+GRANT ROLE ppw_EXPORT_snowflake TO USER {user};
 ```
 
 Replace `warehouse` between `{` and `}` characters to the actual values from point 3.
@@ -88,7 +88,7 @@ CREATE STAGE {database}.{schema}.{stage_name}
 url='s3://{s3_bucket}'
 credentials=(AWS_KEY_ID='{aws_key_id}' AWS_SECRET_KEY='{aws_secret_key}')
 encryption=(MASTER_KEY='{client_side_encryption_master_key}');
-GRANT USAGE ON STAGE {database}.{schema}.{stage_name} TO ROLE ppw_target_snowflake;
+GRANT USAGE ON STAGE {database}.{schema}.{stage_name} TO ROLE ppw_EXPORT_snowflake;
 ```
 
 Notes:
@@ -112,7 +112,7 @@ Running the the export connector requires a `config.json` file. Example with the
      "password": "password",
      "warehouse": "my_virtual_warehouse",
      "file_format": "snowflake_file_format_object_name",
-     "default_target_schema": "my_target_schema"
+     "default_EXPORT_schema": "my_EXPORT_schema"
    }
    ```
 
@@ -142,10 +142,10 @@ Full list of options in `config.json`:
 | flush_all_streams                   | Boolean |            | (Default: False) Flush and load every stream into Snowflake when one batch is full. Warning: This may trigger the COPY command to use files with low number of records, and may cause performance problems. |
 | parallelism                         | Integer |            | (Default: 0) The number of threads used to flush tables. 0 will create a thread for each stream, up to parallelism_max. -1 will create a thread for each CPU core. Any other positive number will create that number of threads, up to parallelism_max. |
 | parallelism_max                     | Integer |            | (Default: 16) Max number of parallel threads to use when flushing tables. |
-| default_target_schema               | String  |            | Name of the schema where the tables will be created, **without** database prefix. If `schema_mapping` is not defined then every stream sent by the tap is loaded into this schema.    |
-| default_target_schema_select_permission | String  |            | Grant USAGE privilege on newly created schemas and grant SELECT privilege on newly created tables to a specific role or a list of roles. If `schema_mapping` is not defined then every stream sent by the tap is granted accordingly.   |
-| schema_mapping                      | Object  |            | Useful if you want to load multiple streams from one tap to multiple Snowflake schemas.<br><br>If the tap sends the `stream_id` in `<schema_name>-<table_name>` format then this option overwrites the `default_target_schema` value. Note, that using `schema_mapping` you can overwrite the `default_target_schema_select_permission` value to grant SELECT permissions to different groups per schemas or optionally you can create indices automatically for the replicated tables.<br><br> **Note**: This is an experimental feature and recommended to use via PipelineWise YAML files that will generate the object mapping in the right JSON format. For further info check a [PipelineWise YAML Example]
-| disable_table_cache                 | Boolean |            | (Default: False) By default the connector caches the available table structures in Snowflake at startup. In this way it doesn't need to run additional queries when ingesting data to check if altering the target tables is required. With `disable_table_cache` option you can turn off this caching. You will always see the most recent table structures but will cause an extra query runtime. |
+| default_EXPORT_schema               | String  |            | Name of the schema where the tables will be created, **without** database prefix. If `schema_mapping` is not defined then every stream sent by the tap is loaded into this schema.    |
+| default_EXPORT_schema_select_permission | String  |            | Grant USAGE privilege on newly created schemas and grant SELECT privilege on newly created tables to a specific role or a list of roles. If `schema_mapping` is not defined then every stream sent by the tap is granted accordingly.   |
+| schema_mapping                      | Object  |            | Useful if you want to load multiple streams from one tap to multiple Snowflake schemas.<br><br>If the tap sends the `stream_id` in `<schema_name>-<table_name>` format then this option overwrites the `default_EXPORT_schema` value. Note, that using `schema_mapping` you can overwrite the `default_EXPORT_schema_select_permission` value to grant SELECT permissions to different groups per schemas or optionally you can create indices automatically for the replicated tables.<br><br> **Note**: This is an experimental feature and recommended to use via PipelineWise YAML files that will generate the object mapping in the right JSON format. For further info check a [PipelineWise YAML Example]
+| disable_table_cache                 | Boolean |            | (Default: False) By default the connector caches the available table structures in Snowflake at startup. In this way it doesn't need to run additional queries when ingesting data to check if altering the EXPORT tables is required. With `disable_table_cache` option you can turn off this caching. You will always see the most recent table structures but will cause an extra query runtime. |
 | client_side_encryption_master_key   | String  |            | (Default: None) When this is defined, Client-Side Encryption is enabled. The data in S3 will be encrypted, No third parties, including Amazon AWS and any ISPs, can see data in the clear. Snowflake COPY command will decrypt the data once it's in Snowflake. The master key must be 256-bit length and must be encoded as base64 string. |
 | add_metadata_columns                | Boolean |            | (Default: False) Metadata columns add extra row level information about data ingestions, (i.e. when was the row read in source, when was inserted or deleted in snowflake etc.) Metadata columns are creating automatically by adding extra columns to the tables with a column prefix `_SDC_`. The column names are following the stitch naming conventions documented at https://www.stitchdata.com/docs/data-structure/integration-schemas#sdc-columns. Enabling metadata columns will flag the deleted rows by setting the `_SDC_DELETED_AT` metadata column. Without the `add_metadata_columns` option the deleted rows from singer taps will not be recongisable in Snowflake. |
 | hard_delete                         | Boolean |            | (Default: False) When `hard_delete` option is true then DELETE SQL commands will be performed in Snowflake to delete rows in tables. It's achieved by continuously checking the  `_SDC_DELETED_AT` metadata column sent by the singer tap. Due to deleting rows requires metadata columns, `hard_delete` option automatically enables the `add_metadata_columns` option as well. |
@@ -163,20 +163,20 @@ Full list of options in `config.json`:
 
 1. Define the environment variables that are required to run the tests by creating a `.env` file in `tests/integration`, or by exporting the variables below.
 ```
-  export TARGET_SNOWFLAKE_ACCOUNT=<snowflake-account-name>
-  export TARGET_SNOWFLAKE_DBNAME=<snowflake-database-name>
-  export TARGET_SNOWFLAKE_USER=<snowflake-user>
-  export TARGET_SNOWFLAKE_PASSWORD=<snowflake-password>
-  export TARGET_SNOWFLAKE_WAREHOUSE=<snowflake-warehouse>
-  export TARGET_SNOWFLAKE_SCHEMA=<snowflake-schema>
-  export TARGET_SNOWFLAKE_AWS_ACCESS_KEY=<aws-access-key-id>
-  export TARGET_SNOWFLAKE_AWS_SECRET_ACCESS_KEY=<aws-access-secret-access-key>
-  export TARGET_SNOWFLAKE_S3_ACL=<s3-target-acl>
-  export TARGET_SNOWFLAKE_S3_BUCKET=<s3-external-bucket>
-  export TARGET_SNOWFLAKE_S3_KEY_PREFIX=<bucket-directory>
-  export TARGET_SNOWFLAKE_STAGE=<stage-object-with-schema-name>
-  export TARGET_SNOWFLAKE_FILE_FORMAT_CSV=<file-format-csv-object-with-schema-name>
-  export TARGET_SNOWFLAKE_FILE_FORMAT_PARQUET=<file-format-parquet-object-with-schema-name>
+  export EXPORT_SNOWFLAKE_ACCOUNT=<snowflake-account-name>
+  export EXPORT_SNOWFLAKE_DBNAME=<snowflake-database-name>
+  export EXPORT_SNOWFLAKE_USER=<snowflake-user>
+  export EXPORT_SNOWFLAKE_PASSWORD=<snowflake-password>
+  export EXPORT_SNOWFLAKE_WAREHOUSE=<snowflake-warehouse>
+  export EXPORT_SNOWFLAKE_SCHEMA=<snowflake-schema>
+  export EXPORT_SNOWFLAKE_AWS_ACCESS_KEY=<aws-access-key-id>
+  export EXPORT_SNOWFLAKE_AWS_SECRET_ACCESS_KEY=<aws-access-secret-access-key>
+  export EXPORT_SNOWFLAKE_S3_ACL=<s3-export-acl>
+  export EXPORT_SNOWFLAKE_S3_BUCKET=<s3-external-bucket>
+  export EXPORT_SNOWFLAKE_S3_KEY_PREFIX=<bucket-directory>
+  export EXPORT_SNOWFLAKE_STAGE=<stage-object-with-schema-name>
+  export EXPORT_SNOWFLAKE_FILE_FORMAT_CSV=<file-format-csv-object-with-schema-name>
+  export EXPORT_SNOWFLAKE_FILE_FORMAT_PARQUET=<file-format-parquet-object-with-schema-name>
   export CLIENT_SIDE_ENCRYPTION_MASTER_KEY=<client_side_encryption_master_key>
 ```
 

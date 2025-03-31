@@ -3,7 +3,7 @@ import unittest
 from pandas._testing import assert_frame_equal
 from pandas import DataFrame
 
-import target_snowflake.file_formats.parquet as parquet
+import export_snowflake.file_formats.parquet as parquet
 
 
 class TestParquet(unittest.TestCase):
