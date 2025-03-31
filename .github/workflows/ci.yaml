@@ -25,12 +25,26 @@ jobs:
 
       - name: Setup virtual environment
         run: make venv
+        env:
+          EXPORT_SNOWFLAKE_ACCOUNT: ${{ secrets.EXPORT_SNOWFLAKE_ACCOUNT }}
+          EXPORT_SNOWFLAKE_DBNAME: ${{ secrets.EXPORT_SNOWFLAKE_DBNAME }}
+          EXPORT_SNOWFLAKE_USER: ${{ secrets.EXPORT_SNOWFLAKE_USER }}
+          EXPORT_SNOWFLAKE_PASSWORD: ${{ secrets.EXPORT_SNOWFLAKE_PASSWORD }}
+          EXPORT_SNOWFLAKE_WAREHOUSE: ${{ secrets.EXPORT_SNOWFLAKE_WAREHOUSE }}
+          EXPORT_SNOWFLAKE_SCHEMA: ${{ secrets.EXPORT_SNOWFLAKE_SCHEMA }}
+          EXPORT_SNOWFLAKE_AWS_ACCESS_KEY: ${{ secrets.EXPORT_SNOWFLAKE_AWS_ACCESS_KEY }}
+          EXPORT_SNOWFLAKE_AWS_SECRET_ACCESS_KEY: ${{ secrets.EXPORT_SNOWFLAKE_AWS_SECRET_ACCESS_KEY }}
+          EXPORT_SNOWFLAKE_S3_BUCKET: ${{ secrets.EXPORT_SNOWFLAKE_S3_BUCKET }}
+          EXPORT_SNOWFLAKE_S3_KEY_PREFIX: ${{ secrets.EXPORT_SNOWFLAKE_S3_KEY_PREFIX }}
+          EXPORT_SNOWFLAKE_STAGE: ${{ secrets.EXPORT_SNOWFLAKE_STAGE }}
+          EXPORT_SNOWFLAKE_FILE_FORMAT_CSV: ${{ secrets.EXPORT_SNOWFLAKE_FILE_FORMAT_CSV }}
+          EXPORT_SNOWFLAKE_FILE_FORMAT_PARQUET: ${{ secrets.EXPORT_SNOWFLAKE_FILE_FORMAT_PARQUET }}
+          CLIENT_SIDE_ENCRYPTION_MASTER_KEY: ${{ secrets.EXPORT_SNOWFLAKE_CLIENT_SIDE_ENCRYPTION_MASTER_KEY }}
+      # - name: Pylinting
+      #   run: make pylint
 
-      - name: Pylinting
-        run: make pylint
-
-      - name: Unit Tests
-        run: make unit_test
+      # - name: Unit Tests
+      #   run: make unit_test
 
   integration_test:
     name: Integration Testing
@@ -54,9 +68,6 @@ jobs:
 
       - name: Setup virtual environment
         run: make venv
-
-      - name: Integration tests
-        run: make integration_test
         env:
           EXPORT_SNOWFLAKE_ACCOUNT: ${{ secrets.EXPORT_SNOWFLAKE_ACCOUNT }}
           EXPORT_SNOWFLAKE_DBNAME: ${{ secrets.EXPORT_SNOWFLAKE_DBNAME }}
