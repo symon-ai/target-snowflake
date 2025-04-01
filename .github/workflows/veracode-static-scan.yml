@@ -16,17 +16,18 @@ jobs:
       - name: Zip
         uses: montudor/action-zip@v1
         with:
-          args: zip -qq -r ELT_export-snowflake.zip .
+          args: zip -qq -r ELT_target-snowflake.zip .
       - name: Get timestamp
         run: echo TIMESTAMP=$(date +%Y-%m-%d_%H:%M:%S) >> $GITHUB_ENV
       - name: Veracode Upload And Scan
         uses: veracode/veracode-uploadandscan-action@0.2.6
         with:
-          appname: ELT_export-snowflake
+          appname: ELT_target-snowflake
           createprofile: true
-          filepath: ./ELT_export-snowflake.zip
+          filepath: ./ELT_target-snowflake.zip
           version: ${{ env.TIMESTAMP }}
           vid: ${{ secrets.VERACODE_API_KEY_ID }}
           vkey: ${{ secrets.VERACODE_API_KEY_SECRET }}
           scantimeout: 120
+
           criticality: High
