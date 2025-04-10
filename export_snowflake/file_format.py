@@ -1,4 +1,4 @@
-"""Enums used by pipelinewise-target-snowflake"""
+"""Enums used by pipelinewise-export-snowflake"""
 from enum import Enum, unique
 from types import ModuleType
 from typing import Callable

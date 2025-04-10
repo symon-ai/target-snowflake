@@ -1,4 +1,4 @@
-"""Exceptions used by pipelinewise-target-snowflake"""
+"""Exceptions used by pipelinewise-export-snowflake"""
 
 
 class RecordValidationException(Exception):
