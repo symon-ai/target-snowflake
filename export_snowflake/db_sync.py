@@ -578,7 +578,22 @@ class DbSync:
                 cur.execute(stage_generation_query)
                 
                 self.logger.debug('Running query: %s', merge_sql)
-                cur.execute(merge_sql)
+                try:
+                    cur.execute(merge_sql)
+                except snowflake.connector.errors.IntegrityError as e:
+                    err_msg = str(e)
+                    if 'NULL result in a non-nullable column' in err_msg:
+                        start_index = err_msg.find('column ') + len('column ')
+                        end_index = err_msg.find(' with error')
+                        non_nullable_column = err_msg[start_index: end_index]
+                        raise SymonException(f'Column "{non_nullable_column}" contains NULL values. To allow NULL values, alter table definition to drop NOT NULL constraint on column "{non_nullable_column}"', 'snowflake.clientError')
+                    raise
+                except snowflake.connector.errors.ProgrammingError as e:
+                    err_msg = str(e)
+                    if 'Insufficient privileges to operate on table' in str(e):
+                        table_name = self.table_name(stream, False, True)
+                        raise SymonException(f'INSERT/UPDATE privileges on table {table_name} are missing.', 'snowflake.clientError')
+                    raise
                 # Get number of inserted and updated records
                 results = cur.fetchall()
                 if len(results) > 0:
@@ -883,14 +898,13 @@ class DbSync:
                 self.logger.debug('Create table with query %s', query)
                 self.query(query)
             except snowflake.connector.errors.ProgrammingError as e:
-                # No privilege to create table. However, this error could be raised if user doesn't have select or ownership privilege on the existing table
-                # as the table will not be returned from get_tables call. We need ownership privilege on updating existing table.
+                # No privilege to create table. However, this error could be raised if user doesn't have select privilege on the existing table
+                # as the table will not be returned from get_tables call.
                 message = str(e)
                 if 'Insufficient privileges to operate on schema' in message:
-                    raise SymonException(f'CREATE TABLE privilege on schema "{schema_name_upper}" is missing. If the table {table_name_upper} already exists in the schema "{schema_name_upper}", please ensure you have OWNERSHIP privilege on the table.', "snowflake.clientError")
-                # if table exists, ownership privilege is needed on table as we use internal table stage and perform ddl
+                    raise SymonException(f'CREATE TABLE privilege on schema "{schema_name_upper}" is missing. If the table {table_name_upper} already exists in the schema "{schema_name_upper}", please ensure you have SELECT privilege on the table.', "snowflake.clientError")
                 if f"Table '{table_name_upper[1:-1]}' already exists, but current role has no privileges on it" in message:
-                    raise SymonException(f'OWNERSHIP privilege on table {table_name_upper} is missing.', "snowflake.clientError")
+                    raise SymonException(f'SELECT privilege on table {table_name_upper} is missing.', "snowflake.clientError")
                 raise
                 
             self.grant_privilege(self.schema_name, self.grantees, self.grant_select_on_all_tables_in_schema)
@@ -900,26 +914,16 @@ class DbSync:
                 self.table_cache = self.get_table_columns(table_schemas=[self.schema_name])
         else:
             self.logger.info('Table %s exists', table_name_with_schema)
-            try:
-                self.validate_columns()
-            except snowflake.connector.errors.ProgrammingError as e:
-                if f"Insufficient privileges to operate on table" in str(e):
-                    raise SymonException(f'OWNERSHIP privilege on table {table_name_upper} is missing.', "snowflake.clientError")
-                raise
+            self.validate_columns()
 
-        self._refresh_table_pks()
+        self.validate_table_pks()
 
-    def _refresh_table_pks(self):
+    def validate_table_pks(self):
         """
-        Refresh table PK constraints by either dropping or adding PK based on changes to `key_properties` of the
-        stream schema.
-        The non-nullability of PK column is also dropped.
+        Validate table PK matches `key_properties` of the stream schema.
         """
-        table_name = self.table_name(self.stream_schema_message['stream'], False)
         current_pks = self._get_current_pks()
         new_pks = set(pk.upper() for pk in self.stream_schema_message.get('key_properties', []))
-
-        queries = []
 
         self.logger.debug('Table: %s, Current PKs: %s | New PKs: %s ',
                           self.stream_schema_message['stream'],
@@ -927,31 +931,8 @@ class DbSync:
                           new_pks
                           )
 
-        if not new_pks and current_pks:
-            self.logger.info('Table "%s" currently has PK constraint, but we need to drop it.', table_name)
-            queries.append(f'alter table {table_name} drop primary key;')
-
-        elif new_pks != current_pks:
-            self.logger.info('Changes detected in pk columns of table "%s", need to refresh PK.', table_name)
-            pk_list = ', '.join([safe_column_name(col) for col in new_pks])
-
-            if current_pks:
-                queries.append(f'alter table {table_name} drop primary key;')
-
-            queries.append(f'alter table {table_name} add primary key({pk_list});')
-
-        # For now, we don't wish to enforce non-nullability on the pk columns
-        for pk in current_pks.union(new_pks):
-            queries.append(f'alter table {table_name} alter column {safe_column_name(pk)} drop not null;')
-
-        try:
-            self.query(queries)
-        except snowflake.connector.errors.ProgrammingError as e:
-            if 'Insufficient privileges to operate on table' in str(e):
-                table_name_quote_removed = table_name.split('.')[1][1:-1]
-                # ownership privilege required for ddl
-                raise SymonException(f'OWNERSHIP privilege on table "{table_name_quote_removed.upper()}" is missing.', "snowflake.clientError")
-            raise e
+        if new_pks != current_pks:
+            raise SymonException(f'Key columns must match the primary key of the table in the Snowflake database. (Table key columns: {list(current_pks)}, Provided key columns: {list(new_pks)})', 'snowflake.clientError')
 
     def _get_current_pks(self) -> Set[str]:
         """
