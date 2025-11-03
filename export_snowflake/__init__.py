@@ -171,21 +171,18 @@ def main():
             try:
                 error_file_path = config.get('error_file_path', None)
                 if error_file_path is not None:
-                    LOGGER.info(f'Writing error to: {error_file_path}')
                     try:
                         with open(error_file_path, 'w', encoding='utf-8') as fp:
                             json.dump(error_info, fp)
-                        LOGGER.info(f'Successfully wrote error file: {error_file_path}')
-                    except Exception as e:
-                        LOGGER.error(f'Failed to write error file: {e}')
+                    except:
+                        pass
                 # log error info as well in case file is corrupted
                 error_info_json = json.dumps(error_info)
-                error_start_marker = config.get('error_start_marker', ERROR_START_MARKER)
-                error_end_marker = config.get('error_end_marker', ERROR_END_MARKER)
+                error_start_marker = args.config.get('error_start_marker', ERROR_START_MARKER)
+                error_end_marker = args.config.get('error_end_marker', ERROR_END_MARKER)
                 LOGGER.info(f'{error_start_marker}{error_info_json}{error_end_marker}')
-            except Exception as final_error:
-                # error occurred before config was loaded correctly, log the error
-                LOGGER.error(f'Error in finally block: {final_error}')
+            except:
+                # error occurred before args was parsed correctly, log the error
                 error_info_json = json.dumps(error_info)
                 LOGGER.info(f'{ERROR_START_MARKER}{error_info_json}{ERROR_END_MARKER}')
 
