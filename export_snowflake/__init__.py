@@ -169,7 +169,7 @@ def main():
     finally:
         if error_info is not None:
             try:
-                error_file_path = args.config.get('error_file_path', None)
+                error_file_path = config.get('error_file_path', None)
                 if error_file_path is not None:
                     try:
                         with open(error_file_path, 'w', encoding='utf-8') as fp:
