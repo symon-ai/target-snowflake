@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "export-snowflake"
-version="3.4.0"
+version="3.5.0"
 description = "Export for loading data from S3 to Snowflake"
 authors = ["Wise"]
 classifiers = [

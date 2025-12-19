@@ -758,7 +758,8 @@ class DbSync:
                 queries = []
 
                 # Get column data types by SHOW COLUMNS
-                show_columns = f"SHOW COLUMNS IN SCHEMA {self.connection_config['dbname']}.{schema}"
+                # For Symon export, we only export one table, so we only need columns of a table, not the whole schema
+                show_columns = f"SHOW COLUMNS IN TABLE {self.connection_config['dbname']}.{schema}.{self.connection_config['stream']}"
 
                 # Convert output of SHOW COLUMNS to table and insert results into the cache COLUMNS table
                 #
