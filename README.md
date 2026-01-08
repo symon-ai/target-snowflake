@@ -229,6 +229,18 @@ Full list of options in `config.json`:
   pylint target_snowflake
 ```
 
+
+## Package manager
+
+We only use poetry to manage our package. Pipfile is there because our code scan doesn't support poetry.lock. So we do the following hack to generate Pipfile and Pipfile.lock based on our poetry.lock:
+
+# 1. Export all dependencies from poetry.lock to requirements.txt
+poetry export -f requirements.txt --output requirements.txt --without-hashes
+
+# 2. Generate Pipfile and Pipfile.lock from requirements.txt
+pipenv install -r requirements.txt
+
+
 ## License
 
 Apache License Version 2.0
