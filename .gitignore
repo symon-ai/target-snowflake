@@ -35,3 +35,5 @@ docs/_templates/
 
 # Environment
 .env
+requirements.txt
+.python-version
