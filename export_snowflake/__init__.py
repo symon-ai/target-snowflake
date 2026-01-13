@@ -10,9 +10,9 @@ import sys
 import boto3
 import time
 import snowflake.connector
+from datetime import datetime, timedelta, date
 
 from singer import get_logger
-from datetime import datetime, timedelta
 
 from export_snowflake.file_formats import csv
 from export_snowflake.file_formats import parquet
@@ -24,7 +24,24 @@ from export_snowflake.exceptions import (
     SymonException
 )
 
+# PyArrow for efficient columnar date clamping
+import s3fs
+import pyarrow.parquet as pq
+import pyarrow as pa
+import pyarrow.compute as pc
+
 LOGGER = get_logger('export_snowflake')
+
+# S3 filesystem for PyArrow operations
+s3_file_system = s3fs.S3FileSystem()
+
+# Pandas Timestamp boundaries - dates at or beyond these are sentinel values
+PANDAS_MIN_DATE = date(1677, 9, 22)
+PANDAS_MAX_DATE = date(2262, 4, 10)
+
+# Snowflake-safe boundary dates
+SNOWFLAKE_MIN_DATE = date(1900, 1, 1)
+SNOWFLAKE_MAX_DATE = date(9999, 12, 31)
 
 # Tone down snowflake.connector log noise by only outputting warnings and higher level messages
 logging.getLogger('snowflake.connector').setLevel(logging.WARNING)
@@ -34,6 +51,108 @@ ERROR_START_MARKER = '[target_error_start]'
 ERROR_END_MARKER = '[target_error_end]'
 
 LOCAL_SCHEMA_FILE_PATH = 'local_schema.json'
+
+
+def clamp_out_of_bound_dates(table: pa.Table) -> pa.Table:
+    """
+    Replace pandas boundary dates with Snowflake-safe dates.
+    
+    Uses PyArrow for efficient columnar processing.
+    For timestamp columns: converts to date32 (date-only) to avoid overflow issues.
+    """
+    columns_modified = []
+    new_columns = {}
+    
+    for i, field in enumerate(table.schema):
+        col = table.column(i)
+        col_type = field.type
+        
+        # Handle timestamp columns
+        if pa.types.is_timestamp(col_type):
+            try:
+                date_col = pc.cast(col, pa.date32())
+                
+                min_mask = pc.less_equal(date_col, pa.scalar(PANDAS_MIN_DATE, type=pa.date32()))
+                max_mask = pc.greater_equal(date_col, pa.scalar(PANDAS_MAX_DATE, type=pa.date32()))
+                
+                min_count = pc.sum(pc.cast(min_mask, pa.int64())).as_py() or 0
+                max_count = pc.sum(pc.cast(max_mask, pa.int64())).as_py() or 0
+                
+                if min_count > 0 or max_count > 0:
+                    sf_min_date = pa.scalar(SNOWFLAKE_MIN_DATE, type=pa.date32())
+                    sf_max_date = pa.scalar(SNOWFLAKE_MAX_DATE, type=pa.date32())
+                    
+                    new_col = pc.if_else(min_mask, sf_min_date, date_col)
+                    new_col = pc.if_else(max_mask, sf_max_date, new_col)
+                    new_columns[field.name] = (new_col, pa.field(field.name, pa.date32()))
+                    columns_modified.append(f"{field.name} (timestamp→date: {min_count} min, {max_count} max)")
+            except Exception as e:
+                LOGGER.warning(f"Could not clamp dates in timestamp column {field.name}: {e}")
+        
+        # Handle date columns
+        elif pa.types.is_date(col_type):
+            try:
+                min_mask = pc.less_equal(col, pa.scalar(PANDAS_MIN_DATE, type=col_type))
+                max_mask = pc.greater_equal(col, pa.scalar(PANDAS_MAX_DATE, type=col_type))
+                
+                min_count = pc.sum(pc.cast(min_mask, pa.int64())).as_py() or 0
+                max_count = pc.sum(pc.cast(max_mask, pa.int64())).as_py() or 0
+                
+                if min_count > 0 or max_count > 0:
+                    sf_min_date = pa.scalar(SNOWFLAKE_MIN_DATE, type=col_type)
+                    sf_max_date = pa.scalar(SNOWFLAKE_MAX_DATE, type=col_type)
+                    
+                    new_col = pc.if_else(min_mask, sf_min_date, col)
+                    new_col = pc.if_else(max_mask, sf_max_date, new_col)
+                    new_columns[field.name] = (new_col, field)
+                    columns_modified.append(f"{field.name} (date: {min_count} min, {max_count} max)")
+            except Exception as e:
+                LOGGER.warning(f"Could not clamp dates in date column {field.name}: {e}")
+    
+    if columns_modified:
+        LOGGER.info(f"Clamped out-of-bound dates in columns: {columns_modified}")
+        for col_name, (new_col, new_field) in new_columns.items():
+            col_idx = table.schema.get_field_index(col_name)
+            table = table.set_column(col_idx, new_field, new_col)
+    
+    return table
+
+
+def process_parquet_dates(bucket, prefix):
+    """
+    Process parquet files in S3 to clamp out-of-bound dates.
+    Modifies files in place before Snowflake reads them.
+    """
+    s3_path = f's3://{bucket}/{prefix}'
+    
+    try:
+        # List all parquet files
+        all_files = s3_file_system.ls(s3_path)
+        parquet_files = [f for f in all_files if f.endswith('.parquet')]
+        
+        if not parquet_files:
+            LOGGER.debug(f"No parquet files found in {s3_path}")
+            return
+        
+        LOGGER.info(f"Processing {len(parquet_files)} parquet file(s) for date clamping")
+        
+        for file_path in parquet_files:
+            parquet_path = f's3://{file_path}'
+            try:
+                # Read parquet as Arrow Table
+                table = pq.read_table(parquet_path, filesystem=s3_file_system)
+                
+                # Clamp dates
+                table = clamp_out_of_bound_dates(table)
+                
+                # Write back to same location
+                pq.write_table(table, parquet_path, filesystem=s3_file_system)
+                LOGGER.debug(f"Processed dates in: {parquet_path}")
+            except Exception as e:
+                LOGGER.warning(f"Could not process dates in {parquet_path}: {e}")
+    except Exception as e:
+        LOGGER.warning(f"Could not process parquet dates in {s3_path}: {e}")
+
 
 def get_snowflake_statics(config):
     """Retrieve common Snowflake items will be used multiple times
@@ -86,6 +205,11 @@ def direct_transfer_data_from_s3_to_snowflake(config, o, file_format_type):
 
     try:
         transfer_start_time = time.time()
+
+        # Clamp out-of-bound dates in parquet files before Snowflake reads them
+        # This uses PyArrow for efficient columnar processing
+        if file_format_type == FileFormatTypes.PARQUET:
+            process_parquet_dates(bucket, prefix)
 
         # check if the schema(Snowflake table) exists and create it if not
         db_sync.create_schema_if_not_exists()
