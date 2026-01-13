@@ -6,6 +6,7 @@ from dateutil import parser
 from dateutil.parser import ParserError
 from decimal import Decimal
 from singer import get_logger
+from datetime import timedelta
 
 from export_snowflake.exceptions import UnexpectedValueTypeException
 from export_snowflake.exceptions import UnexpectedMessageTypeException
@@ -17,6 +18,18 @@ MAX_TIMESTAMP = '9999-12-31 23:59:59.999999'
 
 # max time supported in SF, used to reset all invalid times that are beyond this value
 MAX_TIME = '23:59:59.999999'
+
+# Pandas datetime boundaries
+PANDAS_MIN_DATE = datetime(1677, 9, 21, 0, 12, 43, 145224)
+PANDAS_MAX_DATE = datetime(2262, 4, 11, 23, 47, 16, 854775)
+
+# Pandas boundaries with 1-second tolerance for comparison (used in SQL)
+PANDAS_MIN_DATE_WITH_TOLERANCE = PANDAS_MIN_DATE + timedelta(seconds=5)
+PANDAS_MAX_DATE_WITH_TOLERANCE = PANDAS_MAX_DATE - timedelta(seconds=5)
+
+# Snowflake datetime boundaries  
+SNOWFLAKE_MIN_DATE = datetime(1, 1, 1, 0, 0, 0, 0)
+SNOWFLAKE_MAX_DATE = datetime(9999, 12, 31, 23, 59, 59, 999999)
 
 
 def get_schema_names_from_config(config: Dict) -> List:

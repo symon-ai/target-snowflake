@@ -14,9 +14,24 @@ def create_copy_sql(table_name: str,
                     file_format_name: str,
                     columns: List):
     """Generate a Parquet compatible snowflake COPY INTO command"""
+    # Generate column expressions with pandas date conversion if needed
+    def column_expression(c):
+        base_expr = f"$1:{c['json_element_name']}"
+        if c['trans']:
+            base_expr = f"{c['trans']}({base_expr})"
+        
+        # Add pandas date conversion CASE statement if this is a date column
+        if c.get('is_date', False):
+            base_expr = f"""CASE 
+                WHEN TRY_CAST({base_expr} AS TIMESTAMP_NTZ) >= '2262-04-11 23:47:15'::TIMESTAMP_NTZ THEN '9999-12-31 23:59:59.999999'::TIMESTAMP_NTZ
+                WHEN TRY_CAST({base_expr} AS TIMESTAMP_NTZ) <= '1677-09-21 00:12:44'::TIMESTAMP_NTZ THEN '0001-01-01 00:00:00.000000'::TIMESTAMP_NTZ
+                ELSE TRY_CAST({base_expr} AS TIMESTAMP_NTZ)
+            END"""
+        
+        return f"{base_expr} {c['name']}"
+    
     p_target_columns = ', '.join([c['name'] for c in columns])
-    p_source_columns = ', '.join([f"{c['trans']}($1:{c['json_element_name']}) {c['name']}"
-                                  for i, c in enumerate(columns)])
+    p_source_columns = ', '.join([column_expression(c) for c in columns])
 
     return f"COPY INTO {table_name} ({p_target_columns}) " \
            f"FROM (SELECT {p_source_columns} FROM '@{stage_name}/{s3_key}') " \
@@ -30,8 +45,25 @@ def create_merge_sql(table_name: str,
                      columns: List,
                      pk_merge_condition: str) -> str:
     """Generate a Parquet compatible snowflake MERGE INTO command"""
-    p_source_columns = ', '.join([f"{c['trans']}($1:{c['json_element_name']}) {c['name']}"
-                                  for i, c in enumerate(columns)])
+    # Generate column expressions with pandas date conversion if needed
+    def column_expression(c):
+        base_expr = f"$1:{c['json_element_name']}"
+        if c['trans']:
+            base_expr = f"{c['trans']}({base_expr})"
+        
+        # Add pandas date conversion CASE statement if this is a date column
+        if c.get('is_date', False):
+            # Pandas min: 1677-09-21 00:12:43, max: 2262-04-11 23:47:16
+            # Use 1-second tolerance by checking if date is within 1 second of boundaries
+            base_expr = f"""CASE 
+                WHEN TRY_CAST({base_expr} AS TIMESTAMP_NTZ) >= '2262-04-11 23:47:15'::TIMESTAMP_NTZ THEN '9999-12-31 23:59:59.999999'::TIMESTAMP_NTZ
+                WHEN TRY_CAST({base_expr} AS TIMESTAMP_NTZ) <= '1677-09-21 00:12:44'::TIMESTAMP_NTZ THEN '0001-01-01 00:00:00.000000'::TIMESTAMP_NTZ
+                ELSE TRY_CAST({base_expr} AS TIMESTAMP_NTZ)
+            END"""
+        
+        return f"{base_expr} {c['name']}"
+    
+    p_source_columns = ', '.join([column_expression(c) for c in columns])
     p_update = ', '.join([f"{c['name']}=s.{c['name']}" for c in columns])
     p_insert_cols = ', '.join([c['name'] for c in columns])
     p_insert_values = ', '.join([f"s.{c['name']}" for c in columns])

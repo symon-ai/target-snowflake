@@ -98,6 +98,12 @@ def column_trans(schema_property):
     return col_trans
 
 
+def is_date_column(schema_property):
+    """Check if a column is a date/datetime column"""
+    property_format = schema_property.get('format')
+    return property_format in ('date-time', 'date')
+
+
 def safe_column_name(name):
     """Generate SQL friendly column name"""
     return f'"{name}"'.upper()
@@ -449,13 +455,15 @@ class DbSync:
     def load_file(self, stage_generation_query):
         """Load a supported file type from snowflake stage into target table"""
         stream = self.stream_schema_message['stream']
+        keep_out_of_bound_dates = self.connection_config.get('keep_out_of_bound_dates', False)
 
         # Get list if columns with types
         columns_with_trans = [
             {
                 "name": safe_column_name(name),
                 "json_element_name": json_element_name(name),
-                "trans": column_trans(schema)
+                "trans": column_trans(schema),
+                "is_date": is_date_column(schema) and keep_out_of_bound_dates
             }
             for (name, schema) in self.flatten_schema.items()
         ]
