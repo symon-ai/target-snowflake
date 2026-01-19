@@ -122,6 +122,10 @@ def process_parquet_dates(bucket, prefix):
     """
     Process parquet files in S3 to clamp out-of-bound dates.
     Modifies files in place before Snowflake reads them.
+    
+    Uses streaming approach: reads and writes row groups one at a time
+    to minimize memory usage. Memory is bounded by the largest row group
+    size rather than the entire file.
     """
     s3_path = f's3://{bucket}/{prefix}'
     
@@ -138,17 +142,48 @@ def process_parquet_dates(bucket, prefix):
         
         for file_path in parquet_files:
             parquet_path = f's3://{file_path}'
+            temp_output_path = f's3://{file_path}.tmp'
+            
             try:
-                # Read parquet as Arrow Table
-                table = pq.read_table(parquet_path, filesystem=s3_file_system)
+                # Open source file for reading row groups
+                with s3_file_system.open(parquet_path, 'rb') as f:
+                    parquet_file = pq.ParquetFile(f)
+                    num_row_groups = parquet_file.metadata.num_row_groups
+                    
+                    if num_row_groups == 0:
+                        continue
+                    
+                    # Get schema from first row group
+                    first_row_group = parquet_file.read_row_group(0)
+                    first_row_group = clamp_out_of_bound_dates(first_row_group)
+                    
+                    # Open output file and write row groups incrementally
+                    with s3_file_system.open(temp_output_path, 'wb') as out_f:
+                        writer = pq.ParquetWriter(out_f, first_row_group.schema)
+                        writer.write_table(first_row_group)
+                        del first_row_group  # Free memory
+                        
+                        # Process remaining row groups one at a time
+                        for i in range(1, num_row_groups):
+                            row_group_table = parquet_file.read_row_group(i)
+                            row_group_table = clamp_out_of_bound_dates(row_group_table)
+                            writer.write_table(row_group_table)
+                            del row_group_table  # Free memory
+                        
+                        writer.close()
                 
-                # Clamp dates
-                table = clamp_out_of_bound_dates(table)
+                # Replace original with processed file
+                s3_file_system.rm(parquet_path)
+                s3_file_system.mv(temp_output_path, parquet_path)
+                LOGGER.debug(f"Processed dates in: {parquet_path} ({num_row_groups} row groups)")
                 
-                # Write back to same location
-                pq.write_table(table, parquet_path, filesystem=s3_file_system)
-                LOGGER.debug(f"Processed dates in: {parquet_path}")
             except Exception as e:
+                # Clean up temp file if it exists
+                try:
+                    if s3_file_system.exists(temp_output_path):
+                        s3_file_system.rm(temp_output_path)
+                except:
+                    pass
                 LOGGER.warning(f"Could not process dates in {parquet_path}: {e}")
     except Exception as e:
         LOGGER.warning(f"Could not process parquet dates in {s3_path}: {e}")
